@@ -1,8 +1,9 @@
 "use client";
 
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 import {apiGet} from "@/lib/api";
 import dynamic from "next/dynamic";
+import {Check, ChevronDown, Download, RotateCcw, SlidersHorizontal} from "lucide-react";
 
 const LocationPicker = dynamic(
     () => import("@/components/map/LocationPicker"),
@@ -25,6 +26,10 @@ type PropertyItem = {
     longitude: number;
     surface_sqm: number;
     price: number;
+    price_sqm: number;
+    market_average_sqm: number | null;
+    market_difference_percent: number | null;
+    market_label: "sub_piata" | "la_piata" | "peste_piata";
     monthly_rent: number;
     status: string;
 };
@@ -42,6 +47,26 @@ type PropertyForm = {
     status: string;
 };
 
+type ExportFilters = {
+    title_query: string;
+    address_query: string;
+    sector_ids: string[];
+    property_type_ids: string[];
+    surface_min: string;
+    surface_max: string;
+    price_min: string;
+    price_max: string;
+    market_labels: string[];
+    rent_min: string;
+    rent_max: string;
+    statuses: string[];
+};
+
+type MultiSelectOption = {
+    id: string;
+    label: string;
+};
+
 const emptyForm: PropertyForm = {
     title: "",
     address: "",
@@ -54,6 +79,38 @@ const emptyForm: PropertyForm = {
     monthly_rent: 500,
     status: "available",
 };
+
+const emptyExportFilters: ExportFilters = {
+    title_query: "",
+    address_query: "",
+    sector_ids: ["1", "2", "3", "4", "5", "6"],
+    property_type_ids: ["1", "2", "3", "4", "5"],
+    surface_min: "",
+    surface_max: "",
+    price_min: "",
+    price_max: "",
+    market_labels: ["sub_piata", "la_piata", "peste_piata"],
+    rent_min: "",
+    rent_max: "",
+    statuses: ["available", "rented", "occupied", "sold", "inactive"],
+};
+
+const exportSectorOptions = [
+    {id: "1", label: "Sector 1"},
+    {id: "2", label: "Sector 2"},
+    {id: "3", label: "Sector 3"},
+    {id: "4", label: "Sector 4"},
+    {id: "5", label: "Sector 5"},
+    {id: "6", label: "Sector 6"},
+];
+
+const exportPropertyTypeOptions = [
+    {id: "1", label: "Apartament"},
+    {id: "2", label: "Garsoniera"},
+    {id: "3", label: "Casa"},
+    {id: "4", label: "Spatiu comercial"},
+    {id: "5", label: "Birou"},
+];
 
 const statuses = {
     available: {
@@ -74,6 +131,32 @@ const statuses = {
     },
     inactive: {
         label: "Inactiva",
+        className: "bg-red-50 text-red-700 ring-red-200",
+    },
+};
+
+const exportStatusOptions = Object.entries(statuses).map(([id, config]) => ({
+    id,
+    label: config.label,
+}));
+
+const exportMarketOptions = [
+    {id: "sub_piata", label: "Sub piata"},
+    {id: "la_piata", label: "La piata"},
+    {id: "peste_piata", label: "Peste piata"},
+];
+
+const marketLabels = {
+    sub_piata: {
+        label: "Sub piata",
+        className: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    },
+    la_piata: {
+        label: "La piata",
+        className: "bg-amber-50 text-amber-700 ring-amber-200",
+    },
+    peste_piata: {
+        label: "Peste piata",
         className: "bg-red-50 text-red-700 ring-red-200",
     },
 };
@@ -125,11 +208,196 @@ async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 function FieldLabel({children}: { children: React.ReactNode }) {
-    return <label className="text-sm font-medium text-slate-700">{children}</label>;
+    return <label className="text-sm font-semibold text-slate-700">{children}</label>;
+}
+
+function getSelectionSummary(selectedIds: string[], options: MultiSelectOption[], allLabel: string) {
+    if (selectedIds.length === options.length) {
+        return allLabel;
+    }
+
+    const selectedLabels = options
+        .filter((option) => selectedIds.includes(option.id))
+        .map((option) => option.label);
+
+    if (selectedLabels.length <= 2) {
+        return selectedLabels.join(", ");
+    }
+
+    return `${selectedLabels.length} selectate`;
+}
+
+function MultiSelectDropdown({
+                                 allLabel,
+                                 isOpen,
+                                 onToggle,
+                                 onToggleOption,
+                                 options,
+                                 selectedIds,
+                             }: {
+    allLabel: string;
+    isOpen: boolean;
+    onToggle: () => void;
+    onToggleOption: (id: string) => void;
+    options: MultiSelectOption[];
+    selectedIds: string[];
+}) {
+    return (
+        <div className="relative">
+            <button
+                type="button"
+                onClick={onToggle}
+                className={`flex min-h-[52px] w-full items-center justify-between rounded-2xl border bg-white px-4 py-3 text-left shadow-sm outline-none transition hover:border-slate-300 hover:bg-slate-50 focus:border-slate-900 ${
+                    isOpen ? "border-slate-900 ring-4 ring-slate-100" : "border-slate-200"
+                }`}
+            >
+                <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-sm font-semibold text-slate-900">
+                        {getSelectionSummary(selectedIds, options, allLabel)}
+                    </span>
+                    <span className="mt-0.5 text-xs text-slate-500">
+                        {selectedIds.length} din {options.length} selectate
+                    </span>
+                </span>
+                <span className="text-slate-400">{isOpen ? "▲" : "▼"}</span>
+            </button>
+
+            {isOpen && (
+                <div className="absolute left-0 right-0 top-full z-[10020] mt-2 max-h-64 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                    {options.map((option) => {
+                        const selected = selectedIds.includes(option.id);
+
+                        return (
+                            <button
+                                key={option.id}
+                                type="button"
+                                onClick={() => onToggleOption(option.id)}
+                                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+                                    selected
+                                        ? "bg-slate-900 font-semibold text-white"
+                                        : "text-slate-700 hover:bg-slate-100"
+                                }`}
+                            >
+                                <span>{option.label}</span>
+                                <span className={selected ? "text-xs text-slate-200" : "text-xs text-slate-400"}>
+                                    {selected ? "selectat" : "selecteaza"}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function PrettyMultiSelectDropdown({
+                                       allLabel,
+                                       isOpen,
+                                       onToggle,
+                                       onToggleOption,
+                                       onSelectAll,
+                                       options,
+                                       selectedIds,
+                                   }: {
+    allLabel: string;
+    isOpen: boolean;
+    onToggle: () => void;
+    onToggleOption: (id: string) => void;
+    onSelectAll: () => void;
+    options: MultiSelectOption[];
+    selectedIds: string[];
+}) {
+    const allSelected = selectedIds.length === options.length;
+
+    return (
+        <div className="relative">
+            <button
+                type="button"
+                onClick={onToggle}
+                className={`flex min-h-[54px] w-full items-center justify-between rounded-2xl border bg-white px-4 py-3 text-left shadow-sm outline-none transition hover:border-slate-300 hover:bg-slate-50 focus:border-slate-900 ${
+                    isOpen ? "border-slate-900 ring-4 ring-slate-100" : "border-slate-200"
+                }`}
+            >
+                <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-sm font-semibold text-slate-900">
+                        {getSelectionSummary(selectedIds, options, allLabel)}
+                    </span>
+                    <span className="mt-0.5 text-xs text-slate-500">
+                        {selectedIds.length} din {options.length} selectate
+                    </span>
+                </span>
+                <ChevronDown
+                    className={`h-5 w-5 shrink-0 text-slate-400 transition ${isOpen ? "rotate-180 text-slate-700" : ""}`}
+                />
+            </button>
+
+            {isOpen && (
+                <div className="absolute left-0 right-0 top-full z-[10020] mt-2 max-h-72 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl shadow-slate-900/15">
+                    <button
+                        type="button"
+                        onClick={onSelectAll}
+                        className={`mb-2 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
+                            allSelected
+                                ? "bg-slate-900 text-white shadow-sm hover:bg-slate-800"
+                                : "bg-slate-50 text-slate-500 ring-1 ring-slate-200 hover:bg-slate-100 hover:text-slate-800"
+                        }`}
+                    >
+                        <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                                allSelected
+                                    ? "border-white bg-white text-slate-900"
+                                    : "border-slate-300 bg-white text-transparent"
+                            }`}
+                        >
+                            {allSelected && <Check className="h-3.5 w-3.5"/>}
+                        </span>
+                        <span>Select all</span>
+                    </button>
+
+                    {options.map((option) => {
+                        const selected = selectedIds.includes(option.id);
+
+                        return (
+                            <button
+                                key={option.id}
+                                type="button"
+                                onClick={() => onToggleOption(option.id)}
+                                className={`mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition last:mb-0 ${
+                                    selected
+                                        ? "bg-slate-50 font-semibold text-slate-950 ring-1 ring-slate-200"
+                                        : "text-slate-700 hover:bg-slate-50"
+                                }`}
+                            >
+                                <span
+                                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                                        selected ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"
+                                    }`}
+                                >
+                                    {selected && <Check className="h-3.5 w-3.5"/>}
+                                </span>
+                                <span>{option.label}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
 }
 
 function StatusBadge({status}: { status: string }) {
     const config = statuses[status as keyof typeof statuses] ?? statuses.available;
+
+    return (
+        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${config.className}`}>
+      {config.label}
+    </span>
+    );
+}
+
+function MarketBadge({label}: { label: PropertyItem["market_label"] }) {
+    const config = marketLabels[label] ?? marketLabels.la_piata;
 
     return (
         <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${config.className}`}>
@@ -159,6 +427,13 @@ export default function PropertiesPage() {
     const [statusFilter, setStatusFilter] = useState("all");
     const [saving, setSaving] = useState(false);
     const [showLocationPicker, setShowLocationPicker] = useState(false);
+    const [showExportFilters, setShowExportFilters] = useState(false);
+    const [exportFilters, setExportFilters] = useState<ExportFilters>(emptyExportFilters);
+    const [exporting, setExporting] = useState(false);
+    const [openExportDropdown, setOpenExportDropdown] = useState<"sectors" | "types" | "market" | "statuses" | null>(null);
+    const surfaceSliderRef = useRef<HTMLDivElement | null>(null);
+    const priceSliderRef = useRef<HTMLDivElement | null>(null);
+    const rentSliderRef = useRef<HTMLDivElement | null>(null);
 
     async function loadProperties() {
         try {
@@ -202,6 +477,68 @@ export default function PropertiesPage() {
 
         return total / filteredProperties.length;
     }, [filteredProperties]);
+
+    const surfaceBounds = useMemo(() => {
+        if (properties.length === 0) {
+            return {
+                min: 0,
+                max: 300,
+            };
+        }
+
+        const surfaces = properties.map((property) => property.surface_sqm);
+
+        return {
+            min: Math.floor(Math.min(...surfaces)),
+            max: Math.ceil(Math.max(...surfaces)),
+        };
+    }, [properties]);
+    const selectedSurfaceMin = exportFilters.surface_min ? Number(exportFilters.surface_min) : surfaceBounds.min;
+    const selectedSurfaceMax = exportFilters.surface_max ? Number(exportFilters.surface_max) : surfaceBounds.max;
+    const surfaceRangeSpan = Math.max(surfaceBounds.max - surfaceBounds.min, 1);
+    const surfaceRangeLeft = ((selectedSurfaceMin - surfaceBounds.min) / surfaceRangeSpan) * 100;
+    const surfaceRangeRight = 100 - ((selectedSurfaceMax - surfaceBounds.min) / surfaceRangeSpan) * 100;
+
+    const priceBounds = useMemo(() => {
+        if (properties.length === 0) {
+            return {
+                min: 0,
+                max: 1000000,
+            };
+        }
+
+        const prices = properties.map((property) => property.price);
+
+        return {
+            min: Math.floor(Math.min(...prices)),
+            max: Math.ceil(Math.max(...prices)),
+        };
+    }, [properties]);
+    const selectedPriceMin = exportFilters.price_min ? Number(exportFilters.price_min) : priceBounds.min;
+    const selectedPriceMax = exportFilters.price_max ? Number(exportFilters.price_max) : priceBounds.max;
+    const priceRangeSpan = Math.max(priceBounds.max - priceBounds.min, 1);
+    const priceRangeLeft = ((selectedPriceMin - priceBounds.min) / priceRangeSpan) * 100;
+    const priceRangeRight = 100 - ((selectedPriceMax - priceBounds.min) / priceRangeSpan) * 100;
+    const rentBounds = useMemo(() => {
+        if (properties.length === 0) {
+            return {
+                min: 0,
+                max: 10000,
+            };
+        }
+
+        const rents = properties.map((property) => property.monthly_rent);
+
+        return {
+            min: Math.floor(Math.min(...rents)),
+            max: Math.ceil(Math.max(...rents)),
+        };
+    }, [properties]);
+    const selectedRentMin = exportFilters.rent_min ? Number(exportFilters.rent_min) : rentBounds.min;
+    const selectedRentMax = exportFilters.rent_max ? Number(exportFilters.rent_max) : rentBounds.max;
+    const rentRangeSpan = Math.max(rentBounds.max - rentBounds.min, 1);
+    const rentRangeLeft = ((selectedRentMin - rentBounds.min) / rentRangeSpan) * 100;
+    const rentRangeRight = 100 - ((selectedRentMax - rentBounds.min) / rentRangeSpan) * 100;
 
     function updateField(field: keyof PropertyForm, value: string) {
         setForm((prev) => ({
@@ -363,6 +700,249 @@ export default function PropertiesPage() {
         }
     }
 
+    function updateExportFilter(field: keyof ExportFilters, value: string) {
+        setExportFilters((prev) => ({
+            ...prev,
+            [field]: value,
+        }));
+    }
+
+    function toggleExportFilterValue(field: "sector_ids" | "property_type_ids" | "market_labels" | "statuses", value: string) {
+        setExportFilters((prev) => {
+            const currentValues = prev[field];
+
+            if (currentValues.includes(value) && currentValues.length === 1) {
+                return prev;
+            }
+
+            const nextValues = currentValues.includes(value)
+                ? currentValues.filter((item) => item !== value)
+                : [...currentValues, value];
+
+            return {
+                ...prev,
+                [field]: nextValues,
+            };
+        });
+    }
+
+    function selectAllExportFilterValues(field: "sector_ids" | "property_type_ids" | "market_labels" | "statuses", options: MultiSelectOption[]) {
+        setExportFilters((prev) => ({
+            ...prev,
+            [field]: options.map((option) => option.id),
+        }));
+    }
+
+    function updateExportSurfaceMin(value: string) {
+        const numericValue = Number(value);
+
+        if (value === "") {
+            updateExportFilter("surface_min", "");
+            return;
+        }
+
+        const clampedValue = Math.min(
+            Math.max(numericValue, surfaceBounds.min),
+            selectedSurfaceMax,
+        );
+        updateExportFilter("surface_min", String(clampedValue));
+    }
+
+    function updateExportSurfaceMax(value: string) {
+        const numericValue = Number(value);
+
+        if (value === "") {
+            updateExportFilter("surface_max", "");
+            return;
+        }
+
+        const clampedValue = Math.max(
+            Math.min(numericValue, surfaceBounds.max),
+            selectedSurfaceMin,
+        );
+        updateExportFilter("surface_max", String(clampedValue));
+    }
+
+    function getSurfaceFromPointer(clientX: number) {
+        const slider = surfaceSliderRef.current;
+
+        if (!slider) {
+            return surfaceBounds.min;
+        }
+
+        const rect = slider.getBoundingClientRect();
+        const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
+        const rawValue = surfaceBounds.min + ratio * surfaceRangeSpan;
+
+        return Math.round(rawValue);
+    }
+
+    function dragSurfaceMin(clientX: number) {
+        const nextValue = Math.min(getSurfaceFromPointer(clientX), selectedSurfaceMax);
+        updateExportFilter("surface_min", String(nextValue));
+    }
+
+    function dragSurfaceMax(clientX: number) {
+        const nextValue = Math.max(getSurfaceFromPointer(clientX), selectedSurfaceMin);
+        updateExportFilter("surface_max", String(nextValue));
+    }
+
+    function updateExportPriceMin(value: string) {
+        const numericValue = Number(value);
+
+        if (value === "") {
+            updateExportFilter("price_min", "");
+            return;
+        }
+
+        const clampedValue = Math.min(
+            Math.max(numericValue, priceBounds.min),
+            selectedPriceMax,
+        );
+        updateExportFilter("price_min", String(clampedValue));
+    }
+
+    function updateExportPriceMax(value: string) {
+        const numericValue = Number(value);
+
+        if (value === "") {
+            updateExportFilter("price_max", "");
+            return;
+        }
+
+        const clampedValue = Math.max(
+            Math.min(numericValue, priceBounds.max),
+            selectedPriceMin,
+        );
+        updateExportFilter("price_max", String(clampedValue));
+    }
+
+    function getPriceFromPointer(clientX: number) {
+        const slider = priceSliderRef.current;
+
+        if (!slider) {
+            return priceBounds.min;
+        }
+
+        const rect = slider.getBoundingClientRect();
+        const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
+        const rawValue = priceBounds.min + ratio * priceRangeSpan;
+
+        return Math.round(rawValue / 1000) * 1000;
+    }
+
+    function dragPriceMin(clientX: number) {
+        const nextValue = Math.min(getPriceFromPointer(clientX), selectedPriceMax);
+        updateExportFilter("price_min", String(nextValue));
+    }
+
+    function dragPriceMax(clientX: number) {
+        const nextValue = Math.max(getPriceFromPointer(clientX), selectedPriceMin);
+        updateExportFilter("price_max", String(nextValue));
+    }
+
+    function updateExportRentMin(value: string) {
+        const numericValue = Number(value);
+
+        if (value === "") {
+            updateExportFilter("rent_min", "");
+            return;
+        }
+
+        const clampedValue = Math.min(
+            Math.max(numericValue, rentBounds.min),
+            selectedRentMax,
+        );
+        updateExportFilter("rent_min", String(clampedValue));
+    }
+
+    function updateExportRentMax(value: string) {
+        const numericValue = Number(value);
+
+        if (value === "") {
+            updateExportFilter("rent_max", "");
+            return;
+        }
+
+        const clampedValue = Math.max(
+            Math.min(numericValue, rentBounds.max),
+            selectedRentMin,
+        );
+        updateExportFilter("rent_max", String(clampedValue));
+    }
+
+    function getRentFromPointer(clientX: number) {
+        const slider = rentSliderRef.current;
+
+        if (!slider) {
+            return rentBounds.min;
+        }
+
+        const rect = slider.getBoundingClientRect();
+        const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
+        const rawValue = rentBounds.min + ratio * rentRangeSpan;
+
+        return Math.round(rawValue / 50) * 50;
+    }
+
+    function dragRentMin(clientX: number) {
+        const nextValue = Math.min(getRentFromPointer(clientX), selectedRentMax);
+        updateExportFilter("rent_min", String(nextValue));
+    }
+
+    function dragRentMax(clientX: number) {
+        const nextValue = Math.max(getRentFromPointer(clientX), selectedRentMin);
+        updateExportFilter("rent_max", String(nextValue));
+    }
+
+    function buildExportQuery() {
+        const params = new URLSearchParams();
+
+        Object.entries(exportFilters).forEach(([key, value]) => {
+            if (Array.isArray(value)) {
+                value.forEach((item) => params.append(key, item));
+                return;
+            }
+
+            if (value && value !== "all") {
+                params.set(key, value);
+            }
+        });
+
+        return params.toString();
+    }
+
+    async function exportExcel() {
+        try {
+            setExporting(true);
+            const query = buildExportQuery();
+            const path = query
+                ? `http://127.0.0.1:8000/reports/properties/excel?${query}`
+                : "http://127.0.0.1:8000/reports/properties/excel";
+            const response = await fetch(path);
+
+            if (!response.ok) {
+                throw new Error("Raportul Excel nu a putut fi generat.");
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = "raport_proprietati_geoestate.xlsx";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            setShowExportFilters(false);
+            setError("");
+        } catch {
+            setError("Raportul Excel nu a putut fi descarcat. Verifica daca backend-ul FastAPI ruleaza.");
+        } finally {
+            setExporting(false);
+        }
+    }
+
     return (
         <section className="space-y-6">
             <div className="rounded-3xl bg-slate-900 p-8 text-white shadow-sm">
@@ -378,12 +958,21 @@ export default function PropertiesPage() {
                         </p>
                     </div>
 
-                    <button
-                        onClick={startAdd}
-                        className="rounded-2xl bg-white px-5 py-3 font-semibold text-slate-900 transition hover:bg-slate-100"
-                    >
-                        Adauga proprietate
-                    </button>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                        <button
+                            onClick={() => setShowExportFilters(true)}
+                            className="rounded-2xl border border-white/25 px-5 py-3 font-semibold text-white transition hover:bg-white/10"
+                        >
+                            Export Excel
+                        </button>
+
+                        <button
+                            onClick={startAdd}
+                            className="rounded-2xl bg-white px-5 py-3 font-semibold text-slate-900 transition hover:bg-slate-100"
+                        >
+                            Adauga proprietate
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -457,6 +1046,7 @@ export default function PropertiesPage() {
                         <th className="p-4">Suprafata</th>
                         <th className="p-4">Pret</th>
                         <th className="p-4">Pret/mp</th>
+                        <th className="p-4">Piata</th>
                         <th className="p-4">Chirie</th>
                         <th className="p-4">Status</th>
                         <th className="p-4 text-right">Actiuni</th>
@@ -474,7 +1064,18 @@ export default function PropertiesPage() {
                             <td className="p-4">{property.sector_name ?? `Sector ${property.sector_id}`}</td>
                             <td className="p-4">{property.surface_sqm} mp</td>
                             <td className="p-4 font-medium">{property.price.toLocaleString()} EUR</td>
-                            <td className="p-4">{(property.price / property.surface_sqm).toFixed(2)} EUR</td>
+                            <td className="p-4">{property.price_sqm.toFixed(2)} EUR</td>
+                            <td className="p-4">
+                                <div className="flex flex-col items-start gap-1">
+                                    <MarketBadge label={property.market_label}/>
+                                    {property.market_difference_percent !== null && (
+                                        <span className="text-xs text-slate-500">
+                                            {property.market_difference_percent > 0 ? "+" : ""}
+                                            {property.market_difference_percent.toFixed(2)}% fata de sector
+                                        </span>
+                                    )}
+                                </div>
+                            </td>
                             <td className="p-4">{property.monthly_rent.toLocaleString()} EUR</td>
                             <td className="p-4">
                                 <StatusBadge status={property.status}/>
@@ -501,7 +1102,7 @@ export default function PropertiesPage() {
 
                     {filteredProperties.length === 0 && (
                         <tr>
-                            <td colSpan={8} className="p-8 text-center text-slate-500">
+                            <td colSpan={9} className="p-8 text-center text-slate-500">
                                 Nu exista proprietati pentru filtrele selectate.
                             </td>
                         </tr>
@@ -509,6 +1110,366 @@ export default function PropertiesPage() {
                     </tbody>
                 </table>
             </div>
+
+            {showExportFilters && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm">
+                    <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[28px] bg-white shadow-2xl shadow-slate-950/30 ring-1 ring-white/60">
+                        <div className="flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/80 px-7 py-6">
+                            <div className="flex items-start gap-4">
+                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-lg shadow-slate-900/20">
+                                    <SlidersHorizontal className="h-6 w-6"/>
+                                </div>
+                                <div>
+                                    <h3 className="text-2xl font-bold text-slate-950">
+                                        Date de intrare pentru export Excel
+                                    </h3>
+                                    <p className="mt-1 text-sm text-slate-500">
+                                        Configureaza criteriile raportului. Campurile necompletate raman fara limita.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={() => setShowExportFilters(false)}
+                                className="flex h-10 w-10 items-center justify-center rounded-full text-xl text-slate-400 transition hover:bg-white hover:text-slate-900"
+                            >
+                                ×
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-5 px-7 py-6 md:grid-cols-2">
+                            <div className="space-y-2">
+                                <FieldLabel>Titlu proprietate</FieldLabel>
+                                <input
+                                    className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-900"
+                                    placeholder='Ex: *Domenii*'
+                                    value={exportFilters.title_query}
+                                    onChange={(event) => updateExportFilter("title_query", event.target.value)}
+                                />
+                            </div>
+
+                            <div className="space-y-2">
+                                <FieldLabel>Adresa</FieldLabel>
+                                <input
+                                    className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-900"
+                                    placeholder='Ex: *Victoriei*'
+                                    value={exportFilters.address_query}
+                                    onChange={(event) => updateExportFilter("address_query", event.target.value)}
+                                />
+                            </div>
+
+                            <div className="space-y-3">
+                                <FieldLabel>Sector</FieldLabel>
+                                <PrettyMultiSelectDropdown
+                                    allLabel="Toate sectoarele"
+                                    isOpen={openExportDropdown === "sectors"}
+                                    onToggle={() => setOpenExportDropdown((prev) => prev === "sectors" ? null : "sectors")}
+                                    onToggleOption={(id) => toggleExportFilterValue("sector_ids", id)}
+                                    onSelectAll={() => selectAllExportFilterValues("sector_ids", exportSectorOptions)}
+                                    options={exportSectorOptions}
+                                    selectedIds={exportFilters.sector_ids}
+                                />
+                            </div>
+
+                            <div className="space-y-3">
+                                <FieldLabel>Tip proprietate</FieldLabel>
+                                <PrettyMultiSelectDropdown
+                                    allLabel="Toate tipurile"
+                                    isOpen={openExportDropdown === "types"}
+                                    onToggle={() => setOpenExportDropdown((prev) => prev === "types" ? null : "types")}
+                                    onToggleOption={(id) => toggleExportFilterValue("property_type_ids", id)}
+                                    onSelectAll={() => selectAllExportFilterValues("property_type_ids", exportPropertyTypeOptions)}
+                                    options={exportPropertyTypeOptions}
+                                    selectedIds={exportFilters.property_type_ids}
+                                />
+                            </div>
+
+                            <div className="space-y-2 md:col-span-2">
+                                <FieldLabel>Suprafata mp</FieldLabel>
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                    <input
+                                        className="rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-900"
+                                        max={selectedSurfaceMax}
+                                        min={surfaceBounds.min}
+                                        placeholder="Suprafata minima"
+                                        type="number"
+                                        value={exportFilters.surface_min}
+                                        onChange={(event) => updateExportSurfaceMin(event.target.value)}
+                                    />
+
+                                    <input
+                                        className="rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-900"
+                                        max={surfaceBounds.max}
+                                        min={selectedSurfaceMin}
+                                        placeholder="Suprafata maxima"
+                                        type="number"
+                                        value={exportFilters.surface_max}
+                                        onChange={(event) => updateExportSurfaceMax(event.target.value)}
+                                    />
+                                </div>
+
+                                <div className="pt-3">
+                                    <div ref={surfaceSliderRef} className="relative h-8">
+                                        <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-200"/>
+                                        <div
+                                            className="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-900"
+                                            style={{
+                                                left: `${surfaceRangeLeft}%`,
+                                                right: `${surfaceRangeRight}%`,
+                                            }}
+                                        />
+                                        <button
+                                            aria-label="Suprafata minima export"
+                                            className="absolute top-1/2 z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-[3px] border-white bg-slate-900 shadow-lg active:cursor-grabbing"
+                                            onPointerDown={(event) => {
+                                                event.currentTarget.setPointerCapture(event.pointerId);
+                                                dragSurfaceMin(event.clientX);
+                                            }}
+                                            onPointerMove={(event) => {
+                                                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                                                    dragSurfaceMin(event.clientX);
+                                                }
+                                            }}
+                                            style={{left: `${surfaceRangeLeft}%`}}
+                                            type="button"
+                                        />
+                                        <button
+                                            aria-label="Suprafata maxima export"
+                                            className="absolute top-1/2 z-30 h-5 w-5 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-[3px] border-white bg-slate-900 shadow-lg active:cursor-grabbing"
+                                            onPointerDown={(event) => {
+                                                event.currentTarget.setPointerCapture(event.pointerId);
+                                                dragSurfaceMax(event.clientX);
+                                            }}
+                                            onPointerMove={(event) => {
+                                                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                                                    dragSurfaceMax(event.clientX);
+                                                }
+                                            }}
+                                            style={{left: `${100 - surfaceRangeRight}%`}}
+                                            type="button"
+                                        />
+                                    </div>
+
+                                    <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                                        <span>{surfaceBounds.min.toLocaleString()} mp</span>
+                                        <span>{surfaceBounds.max.toLocaleString()} mp</span>
+                                    </div>
+                                </div>
+
+                                <p className="text-xs text-slate-500">
+                                    Poti trage capatul din stanga pentru suprafata minima, capatul din dreapta pentru suprafata maxima sau poti scrie valorile manual.
+                                </p>
+                            </div>
+
+                            <div className="space-y-2 md:col-span-2">
+                                <FieldLabel>Pret EUR</FieldLabel>
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                    <input
+                                        className="rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-900"
+                                        max={selectedPriceMax}
+                                        min={priceBounds.min}
+                                        placeholder="Pret minim"
+                                        type="number"
+                                        value={exportFilters.price_min}
+                                        onChange={(event) => updateExportPriceMin(event.target.value)}
+                                    />
+
+                                    <input
+                                        className="rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-900"
+                                        max={priceBounds.max}
+                                        min={selectedPriceMin}
+                                        placeholder="Pret maxim"
+                                        type="number"
+                                        value={exportFilters.price_max}
+                                        onChange={(event) => updateExportPriceMax(event.target.value)}
+                                    />
+                                </div>
+
+                                <div className="pt-3">
+                                    <div ref={priceSliderRef} className="relative h-8">
+                                        <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-200"/>
+                                        <div
+                                            className="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-900"
+                                            style={{
+                                                left: `${priceRangeLeft}%`,
+                                                right: `${priceRangeRight}%`,
+                                            }}
+                                        />
+                                        <button
+                                            aria-label="Pret minim export"
+                                            className="absolute top-1/2 z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-[3px] border-white bg-slate-900 shadow-lg active:cursor-grabbing"
+                                            onPointerDown={(event) => {
+                                                event.currentTarget.setPointerCapture(event.pointerId);
+                                                dragPriceMin(event.clientX);
+                                            }}
+                                            onPointerMove={(event) => {
+                                                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                                                    dragPriceMin(event.clientX);
+                                                }
+                                            }}
+                                            style={{left: `${priceRangeLeft}%`}}
+                                            type="button"
+                                        />
+                                        <button
+                                            aria-label="Pret maxim export"
+                                            className="absolute top-1/2 z-30 h-5 w-5 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-[3px] border-white bg-slate-900 shadow-lg active:cursor-grabbing"
+                                            onPointerDown={(event) => {
+                                                event.currentTarget.setPointerCapture(event.pointerId);
+                                                dragPriceMax(event.clientX);
+                                            }}
+                                            onPointerMove={(event) => {
+                                                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                                                    dragPriceMax(event.clientX);
+                                                }
+                                            }}
+                                            style={{left: `${100 - priceRangeRight}%`}}
+                                            type="button"
+                                        />
+                                    </div>
+
+                                    <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                                        <span>{priceBounds.min.toLocaleString()} EUR</span>
+                                        <span>{priceBounds.max.toLocaleString()} EUR</span>
+                                    </div>
+                                </div>
+
+                                <p className="text-xs text-slate-500">
+                                    Poti trage capatul din stanga pentru minim, capatul din dreapta pentru maxim sau poti scrie valorile manual.
+                                </p>
+                            </div>
+
+                            <div className="space-y-3">
+                                <FieldLabel>Indicator piata</FieldLabel>
+                                <PrettyMultiSelectDropdown
+                                    allLabel="Toate clasificarile"
+                                    isOpen={openExportDropdown === "market"}
+                                    onToggle={() => setOpenExportDropdown((prev) => prev === "market" ? null : "market")}
+                                    onToggleOption={(id) => toggleExportFilterValue("market_labels", id)}
+                                    onSelectAll={() => selectAllExportFilterValues("market_labels", exportMarketOptions)}
+                                    options={exportMarketOptions}
+                                    selectedIds={exportFilters.market_labels}
+                                />
+                            </div>
+
+                            <div className="space-y-3">
+                                <FieldLabel>Status</FieldLabel>
+                                <PrettyMultiSelectDropdown
+                                    allLabel="Toate statusurile"
+                                    isOpen={openExportDropdown === "statuses"}
+                                    onToggle={() => setOpenExportDropdown((prev) => prev === "statuses" ? null : "statuses")}
+                                    onToggleOption={(id) => toggleExportFilterValue("statuses", id)}
+                                    onSelectAll={() => selectAllExportFilterValues("statuses", exportStatusOptions)}
+                                    options={exportStatusOptions}
+                                    selectedIds={exportFilters.statuses}
+                                />
+                            </div>
+
+                            <div className="space-y-2 md:col-span-2">
+                                <FieldLabel>Chirie lunara EUR</FieldLabel>
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                    <input
+                                        className="rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-900"
+                                        max={selectedRentMax}
+                                        min={rentBounds.min}
+                                        placeholder="Chirie minima"
+                                        type="number"
+                                        value={exportFilters.rent_min}
+                                        onChange={(event) => updateExportRentMin(event.target.value)}
+                                    />
+
+                                    <input
+                                        className="rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-900"
+                                        max={rentBounds.max}
+                                        min={selectedRentMin}
+                                        placeholder="Chirie maxima"
+                                        type="number"
+                                        value={exportFilters.rent_max}
+                                        onChange={(event) => updateExportRentMax(event.target.value)}
+                                    />
+                                </div>
+
+                                <div className="pt-3">
+                                    <div ref={rentSliderRef} className="relative h-8">
+                                        <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-200"/>
+                                        <div
+                                            className="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-900"
+                                            style={{
+                                                left: `${rentRangeLeft}%`,
+                                                right: `${rentRangeRight}%`,
+                                            }}
+                                        />
+                                        <button
+                                            aria-label="Chirie minima export"
+                                            className="absolute top-1/2 z-20 h-5 w-5 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-[3px] border-white bg-slate-900 shadow-lg active:cursor-grabbing"
+                                            onPointerDown={(event) => {
+                                                event.currentTarget.setPointerCapture(event.pointerId);
+                                                dragRentMin(event.clientX);
+                                            }}
+                                            onPointerMove={(event) => {
+                                                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                                                    dragRentMin(event.clientX);
+                                                }
+                                            }}
+                                            style={{left: `${rentRangeLeft}%`}}
+                                            type="button"
+                                        />
+                                        <button
+                                            aria-label="Chirie maxima export"
+                                            className="absolute top-1/2 z-30 h-5 w-5 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-[3px] border-white bg-slate-900 shadow-lg active:cursor-grabbing"
+                                            onPointerDown={(event) => {
+                                                event.currentTarget.setPointerCapture(event.pointerId);
+                                                dragRentMax(event.clientX);
+                                            }}
+                                            onPointerMove={(event) => {
+                                                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                                                    dragRentMax(event.clientX);
+                                                }
+                                            }}
+                                            style={{left: `${100 - rentRangeRight}%`}}
+                                            type="button"
+                                        />
+                                    </div>
+
+                                    <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                                        <span>{rentBounds.min.toLocaleString()} EUR</span>
+                                        <span>{rentBounds.max.toLocaleString()} EUR</span>
+                                    </div>
+                                </div>
+
+                                <p className="text-xs text-slate-500">
+                                    Poti trage capatul din stanga pentru chiria minima, capatul din dreapta pentru chiria maxima sau poti scrie valorile manual.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col justify-end gap-3 border-t border-slate-100 bg-slate-50/70 px-7 py-5 sm:flex-row">
+                            <button
+                                onClick={() => setExportFilters(emptyExportFilters)}
+                                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                            >
+                                <RotateCcw className="h-4 w-4"/>
+                                Reseteaza filtre
+                            </button>
+
+                            <button
+                                onClick={() => setShowExportFilters(false)}
+                                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-5 py-3 font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                            >
+                                Anuleaza
+                            </button>
+
+                            <button
+                                onClick={exportExcel}
+                                disabled={exporting}
+                                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-900 px-6 py-3 font-semibold text-white shadow-lg shadow-slate-900/20 transition hover:bg-slate-800 disabled:opacity-60"
+                            >
+                                <Download className="h-4 w-4"/>
+                                {exporting ? "Se exporta..." : "Descarca Excel"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {showForm && (
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/60 p-4">

@@ -19,6 +19,10 @@ export type PropertyItem = {
   surface_sqm: number;
   price: number;
   price_per_sqm: number;
+  price_sqm: number;
+  market_average_sqm: number | null;
+  market_difference_percent: number | null;
+  market_label: "sub_piata" | "la_piata" | "peste_piata";
   monthly_rent: number;
   status: string;
   interested_clients: number;

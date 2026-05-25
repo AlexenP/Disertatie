@@ -44,6 +44,30 @@ const defaultIcon = L.icon({
     popupAnchor: [1, -34],
 });
 
+const marketIconColors: Record<PropertyItem["market_label"], string> = {
+    sub_piata: "#16a34a",
+    la_piata: "#f59e0b",
+    peste_piata: "#dc2626",
+};
+
+const marketLabels: Record<PropertyItem["market_label"], string> = {
+    sub_piata: "Sub piata",
+    la_piata: "La piata",
+    peste_piata: "Peste piata",
+};
+
+function createMarketIcon(label: PropertyItem["market_label"]) {
+    const color = marketIconColors[label] ?? marketIconColors.la_piata;
+
+    return L.divIcon({
+        className: "",
+        html: `<span style="display:block;width:18px;height:18px;border-radius:9999px;background:${color};border:3px solid white;box-shadow:0 8px 18px rgba(15,23,42,0.35);"></span>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+        popupAnchor: [0, -10],
+    });
+}
+
 const emptyForm: PropertyForm = {
     title: "",
     address: "Locatie selectata pe harta, Bucuresti",
@@ -271,7 +295,7 @@ export default function PropertiesMap({
                     <Marker
                         key={property.id}
                         position={[property.latitude, property.longitude]}
-                        icon={defaultIcon}
+                        icon={property.market_label ? createMarketIcon(property.market_label) : defaultIcon}
                     >
                         <Popup>
                             <div className="space-y-1">
@@ -281,8 +305,22 @@ export default function PropertiesMap({
                                 <div>{property.surface_sqm} mp</div>
                                 <div>{property.price.toLocaleString()} EUR</div>
                                 <div>
-                                    {(property.price / property.surface_sqm).toFixed(2)} EUR/mp
+                                    {property.price_sqm.toFixed(2)} EUR/mp
                                 </div>
+                                <div>
+                                    Clasificare: {marketLabels[property.market_label] ?? "La piata"}
+                                </div>
+                                {property.market_average_sqm !== null && (
+                                    <div>
+                                        Media sectorului: {property.market_average_sqm.toFixed(2)} EUR/mp
+                                    </div>
+                                )}
+                                {property.market_difference_percent !== null && (
+                                    <div>
+                                        Diferenta: {property.market_difference_percent > 0 ? "+" : ""}
+                                        {property.market_difference_percent.toFixed(2)}%
+                                    </div>
+                                )}
                             </div>
                         </Popup>
                     </Marker>

@@ -58,6 +58,10 @@ class PropertyRead(BaseModel):
     views_count: int
     created_at: datetime
     price_per_sqm: float
+    price_sqm: float
+    market_average_sqm: Optional[float] = None
+    market_difference_percent: Optional[float] = None
+    market_label: str
     sector_name: Optional[str] = None
     property_type_name: Optional[str] = None
 

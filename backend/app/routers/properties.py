@@ -3,12 +3,18 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.models import Property
 from app.schemas.schemas import PropertyCreate, PropertyUpdate
+from app.services.market_service import (
+    classify_property_against_market,
+    get_latest_sector_market_averages,
+)
 
 router = APIRouter(prefix="/properties", tags=["properties"])
 VALID_STATUSES = {"available", "occupied", "sold", "rented", "inactive"}
 
 
-def serialize_property(p: Property):
+def serialize_property(p: Property, market_average_sqm: float | None = None):
+    market_data = classify_property_against_market(p, market_average_sqm)
+
     return {
         "id": p.id,
         "code": p.code,
@@ -26,6 +32,7 @@ def serialize_property(p: Property):
         "views_count": p.views_count,
         "created_at": p.created_at,
         "price_per_sqm": p.price_per_sqm,
+        **market_data,
         "sector_name": p.sector.name if p.sector else None,
         "property_type_name": p.property_type.name if p.property_type else None,
     }
@@ -38,7 +45,15 @@ def list_properties(sector_id: int | None = None, status: str | None = None, db:
         query = query.filter(Property.sector_id == sector_id)
     if status:
         query = query.filter(Property.status == status)
-    return [serialize_property(p) for p in query.order_by(Property.id.asc()).all()]
+
+    properties = query.order_by(Property.id.asc()).all()
+    sector_ids = sorted({p.sector_id for p in properties})
+    market_averages = get_latest_sector_market_averages(db, sector_ids)
+
+    return [
+        serialize_property(p, market_averages.get(p.sector_id))
+        for p in properties
+    ]
 
 
 @router.post("")
@@ -71,7 +86,8 @@ def create_property(payload: PropertyCreate, db: Session = Depends(get_db)):
             detail="Proprietatea nu a putut fi salvata in baza de date. Verifica daca sectorul si tipul proprietatii exista."
         )
 
-    return serialize_property(prop)
+    market_average = get_latest_sector_market_averages(db, [prop.sector_id]).get(prop.sector_id)
+    return serialize_property(prop, market_average)
 
 
 @router.get("/{property_id}")
@@ -79,7 +95,8 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Proprietatea nu exista")
-    return serialize_property(prop)
+    market_average = get_latest_sector_market_averages(db, [prop.sector_id]).get(prop.sector_id)
+    return serialize_property(prop, market_average)
 
 
 @router.put("/{property_id}")
@@ -93,7 +110,8 @@ def update_property(property_id: int, payload: PropertyUpdate, db: Session = Dep
         setattr(prop, key, value)
     db.commit()
     db.refresh(prop)
-    return serialize_property(prop)
+    market_average = get_latest_sector_market_averages(db, [prop.sector_id]).get(prop.sector_id)
+    return serialize_property(prop, market_average)
 
 
 @router.delete("/{property_id}")
