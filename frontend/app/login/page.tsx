@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 type LoginResponse = {
@@ -242,6 +243,22 @@ export default function LoginPage() {
                                             ? "Se autentifica..."
                                             : "Login"}
                                     </button>
+
+                                    <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+                                        <Link
+                                            href="/register"
+                                            className="font-semibold text-slate-700 transition hover:text-slate-950"
+                                        >
+                                            Creeaza cont
+                                        </Link>
+
+                                        <Link
+                                            href="/forgot-password"
+                                            className="font-semibold text-slate-700 transition hover:text-slate-950"
+                                        >
+                                            Am uitat parola
+                                        </Link>
+                                    </div>
                                 </div>
 
                                 <div className="my-8 flex items-center gap-4">

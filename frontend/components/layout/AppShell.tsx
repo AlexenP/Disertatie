@@ -33,7 +33,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [authChecked, setAuthChecked] = useState(false);
   const protectedRoutes = ["/dashboard", "/properties", "/map", "/analytics", "/forecasts"];
   const isHomePage = pathname === "/";
-  const isLoginPage = pathname === "/login";
+  const authPages = ["/login", "/register", "/forgot-password"];
+  const isAuthPage = authPages.includes(pathname);
   const isProtectedRoute = protectedRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
   const currentRoute = navItems.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
   const visibleNavItems = user ? navItems.filter((item) => item.canView(user)) : [];
@@ -58,10 +59,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (currentUser && isLoginPage) {
+    if (currentUser && isAuthPage) {
       router.replace(getFirstAllowedRoute(currentUser));
     }
-  }, [currentRoute, isHomePage, isLoginPage, isProtectedRoute, router]);
+  }, [currentRoute, isAuthPage, isHomePage, isProtectedRoute, router]);
 
   function handleLogout() {
     logoutUser();
@@ -69,7 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
-  if (isHomePage || (!authChecked && !isLoginPage)) {
+  if (isHomePage || (!authChecked && !isAuthPage)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-600">
         Se verifica autentificarea...
@@ -77,7 +78,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (isLoginPage) {
+  if (isAuthPage) {
     return <>{children}</>;
   }
 
