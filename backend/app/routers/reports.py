@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.models import Property
 from app.routers.properties import serialize_property
+from app.security import require_roles
 from app.services.market_service import get_latest_sector_market_averages
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+CAN_EXPORT_REPORTS = ("admin", "agent", "manager", "developer")
 
 MARKET_LABELS = {
     "sub_piata": "Sub piata",
@@ -53,6 +55,7 @@ def export_properties_excel(
     rent_max: float | None = Query(default=None, ge=0),
     statuses: list[str] | None = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(CAN_EXPORT_REPORTS)),
 ):
     query = db.query(Property)
 

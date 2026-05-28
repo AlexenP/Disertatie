@@ -1,9 +1,17 @@
 "use client";
 
 import {useEffect, useMemo, useRef, useState} from "react";
-import {apiGet} from "@/lib/api";
+import {apiGet, getAuthHeaders} from "@/lib/api";
 import dynamic from "next/dynamic";
 import {Check, ChevronDown, Download, RotateCcw, SlidersHorizontal} from "lucide-react";
+import {
+    canCreateProperty,
+    canDeleteProperty,
+    canEditProperty,
+    canExportReports,
+    GeoEstateUser,
+    getCurrentUser,
+} from "@/lib/auth";
 
 const LocationPicker = dynamic(
     () => import("@/components/map/LocationPicker"),
@@ -164,10 +172,12 @@ const marketLabels = {
 async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
     try {
         const response = await fetch(`http://127.0.0.1:8000${path}`, {
+            ...options,
             headers: {
                 "Content-Type": "application/json",
+                ...getAuthHeaders(),
+                ...(options?.headers as Record<string, string> | undefined),
             },
-            ...options,
         });
 
         if (!response.ok) {
@@ -431,9 +441,15 @@ export default function PropertiesPage() {
     const [exportFilters, setExportFilters] = useState<ExportFilters>(emptyExportFilters);
     const [exporting, setExporting] = useState(false);
     const [openExportDropdown, setOpenExportDropdown] = useState<"sectors" | "types" | "market" | "statuses" | null>(null);
+    const [currentUser, setCurrentUser] = useState<GeoEstateUser | null>(null);
     const surfaceSliderRef = useRef<HTMLDivElement | null>(null);
     const priceSliderRef = useRef<HTMLDivElement | null>(null);
     const rentSliderRef = useRef<HTMLDivElement | null>(null);
+    const canCreate = canCreateProperty(currentUser);
+    const canEdit = canEditProperty(currentUser);
+    const canDelete = canDeleteProperty(currentUser);
+    const canExport = canExportReports(currentUser);
+    const canUseRowActions = canEdit || canDelete;
 
     async function loadProperties() {
         try {
@@ -446,6 +462,7 @@ export default function PropertiesPage() {
     }
 
     useEffect(() => {
+        setCurrentUser(getCurrentUser());
         loadProperties();
     }, []);
 
@@ -551,6 +568,10 @@ export default function PropertiesPage() {
     }
 
     function startAdd() {
+        if (!canCreate) {
+            return;
+        }
+
         setForm(emptyForm);
         setEditingId(null);
         setShowForm(true);
@@ -559,6 +580,10 @@ export default function PropertiesPage() {
     }
 
     function startEdit(property: PropertyItem) {
+        if (!canEdit) {
+            return;
+        }
+
         setForm({
             title: property.title,
             address: property.address,
@@ -683,6 +708,10 @@ export default function PropertiesPage() {
     }
 
     async function deleteProperty(id: number, title: string) {
+        if (!canDelete) {
+            return;
+        }
+
         const confirmed = window.confirm(`Sigur vrei sa stergi proprietatea "${title}"?`);
 
         if (!confirmed) {
@@ -692,6 +721,7 @@ export default function PropertiesPage() {
         try {
             await fetch(`http://127.0.0.1:8000/properties/${id}`, {
                 method: "DELETE",
+                headers: getAuthHeaders(),
             });
 
             await loadProperties();
@@ -913,13 +943,19 @@ export default function PropertiesPage() {
     }
 
     async function exportExcel() {
+        if (!canExport) {
+            return;
+        }
+
         try {
             setExporting(true);
             const query = buildExportQuery();
             const path = query
                 ? `http://127.0.0.1:8000/reports/properties/excel?${query}`
                 : "http://127.0.0.1:8000/reports/properties/excel";
-            const response = await fetch(path);
+            const response = await fetch(path, {
+                headers: getAuthHeaders(),
+            });
 
             if (!response.ok) {
                 throw new Error("Raportul Excel nu a putut fi generat.");
@@ -959,19 +995,23 @@ export default function PropertiesPage() {
                     </div>
 
                     <div className="flex flex-col gap-3 sm:flex-row">
-                        <button
-                            onClick={() => setShowExportFilters(true)}
-                            className="rounded-2xl border border-white/25 px-5 py-3 font-semibold text-white transition hover:bg-white/10"
-                        >
-                            Export Excel
-                        </button>
+                        {canExport && (
+                            <button
+                                onClick={() => setShowExportFilters(true)}
+                                className="rounded-2xl border border-white/25 px-5 py-3 font-semibold text-white transition hover:bg-white/10"
+                            >
+                                Export Excel
+                            </button>
+                        )}
 
-                        <button
-                            onClick={startAdd}
-                            className="rounded-2xl bg-white px-5 py-3 font-semibold text-slate-900 transition hover:bg-slate-100"
-                        >
-                            Adauga proprietate
-                        </button>
+                        {canCreate && (
+                            <button
+                                onClick={startAdd}
+                                className="rounded-2xl bg-white px-5 py-3 font-semibold text-slate-900 transition hover:bg-slate-100"
+                            >
+                                Adauga proprietate
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -1049,7 +1089,7 @@ export default function PropertiesPage() {
                         <th className="p-4">Piata</th>
                         <th className="p-4">Chirie</th>
                         <th className="p-4">Status</th>
-                        <th className="p-4 text-right">Actiuni</th>
+                        {canUseRowActions && <th className="p-4 text-right">Actiuni</th>}
                     </tr>
                     </thead>
 
@@ -1080,29 +1120,35 @@ export default function PropertiesPage() {
                             <td className="p-4">
                                 <StatusBadge status={property.status}/>
                             </td>
-                            <td className="p-4">
-                                <div className="flex justify-end gap-2">
-                                    <button
-                                        onClick={() => startEdit(property)}
-                                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium hover:bg-white"
-                                    >
-                                        Editeaza
-                                    </button>
+                            {canUseRowActions && (
+                                <td className="p-4">
+                                    <div className="flex justify-end gap-2">
+                                        {canEdit && (
+                                            <button
+                                                onClick={() => startEdit(property)}
+                                                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium hover:bg-white"
+                                            >
+                                                Editeaza
+                                            </button>
+                                        )}
 
-                                    <button
-                                        onClick={() => deleteProperty(property.id, property.title)}
-                                        className="rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700"
-                                    >
-                                        Sterge
-                                    </button>
-                                </div>
-                            </td>
+                                        {canDelete && (
+                                            <button
+                                                onClick={() => deleteProperty(property.id, property.title)}
+                                                className="rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700"
+                                            >
+                                                Sterge
+                                            </button>
+                                        )}
+                                    </div>
+                                </td>
+                            )}
                         </tr>
                     ))}
 
                     {filteredProperties.length === 0 && (
                         <tr>
-                            <td colSpan={9} className="p-8 text-center text-slate-500">
+                            <td colSpan={canUseRowActions ? 9 : 8} className="p-8 text-center text-slate-500">
                                 Nu exista proprietati pentru filtrele selectate.
                             </td>
                         </tr>
@@ -1111,7 +1157,7 @@ export default function PropertiesPage() {
                 </table>
             </div>
 
-            {showExportFilters && (
+            {showExportFilters && canExport && (
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/65 p-4 backdrop-blur-sm">
                     <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[28px] bg-white shadow-2xl shadow-slate-950/30 ring-1 ring-white/60">
                         <div className="flex items-start justify-between gap-4 border-b border-slate-100 bg-slate-50/80 px-7 py-6">

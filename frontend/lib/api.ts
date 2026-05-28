@@ -1,7 +1,37 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
+export function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  const rawUser = localStorage.getItem("geoestate_user");
+
+  if (!rawUser) {
+    return {};
+  }
+
+  try {
+    const user = JSON.parse(rawUser);
+
+    if (user.token) {
+      return {
+        Authorization: `Bearer ${user.token}`,
+      };
+    }
+  } catch {
+    localStorage.removeItem("geoestate_user");
+  }
+
+  return {};
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, { cache: "no-store" });
+  const response = await fetch(`${API_URL}${path}`, {
+    cache: "no-store",
+    headers: getAuthHeaders(),
+  });
+
   if (!response.ok) throw new Error(`API error: ${response.status}`);
   return response.json();
 }

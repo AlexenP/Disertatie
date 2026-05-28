@@ -1,6 +1,6 @@
 "use client";
 
-import {useState} from "react";
+import {useEffect, useState} from "react";
 import {
     MapContainer,
     TileLayer,
@@ -9,7 +9,8 @@ import {
     useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
-import {PropertyItem} from "@/lib/api";
+import {getAuthHeaders, PropertyItem} from "@/lib/api";
+import {canAddPropertyFromMap, GeoEstateUser, getCurrentUser} from "@/lib/auth";
 
 type PropertyForm = {
     title: string;
@@ -110,10 +111,12 @@ function MapRightClickHandler({
 async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
     try {
         const response = await fetch(`http://127.0.0.1:8000${path}`, {
+            ...options,
             headers: {
                 "Content-Type": "application/json",
+                ...getAuthHeaders(),
+                ...(options?.headers as Record<string, string> | undefined),
             },
-            ...options,
         });
 
         if (!response.ok) {
@@ -157,6 +160,7 @@ export default function PropertiesMap({
                                           properties,
                                           onPropertyCreated,
                                       }: PropertiesMapProps) {
+    const [currentUser, setCurrentUser] = useState<GeoEstateUser | null>(null);
     const [showForm, setShowForm] = useState(false);
     const [form, setForm] = useState<PropertyForm>(emptyForm);
     const [formError, setFormError] = useState("");
@@ -168,6 +172,11 @@ export default function PropertiesMap({
         lat: 44.4268,
         lng: 26.1025,
     });
+    const canAddFromMap = canAddPropertyFromMap(currentUser);
+
+    useEffect(() => {
+        setCurrentUser(getCurrentUser());
+    }, []);
 
     function updateField(field: keyof PropertyForm, value: string) {
         setForm((prev) => ({
@@ -204,6 +213,10 @@ export default function PropertiesMap({
     }
 
     function openContextMenu(lat: number, lng: number, x: number, y: number) {
+        if (!canAddFromMap) {
+            return;
+        }
+
         setContextMenu({
             visible: true,
             x,
@@ -214,6 +227,10 @@ export default function PropertiesMap({
     }
 
     function openFormFromContextMenu() {
+        if (!canAddFromMap) {
+            return;
+        }
+
         setForm({
             ...emptyForm,
             latitude: Number(contextMenu.lat.toFixed(6)),
@@ -230,6 +247,10 @@ export default function PropertiesMap({
     }
 
     async function saveProperty() {
+        if (!canAddFromMap) {
+            return;
+        }
+
         const validationError = validateForm();
 
         if (validationError) {
@@ -267,7 +288,9 @@ export default function PropertiesMap({
     return (
         <div className="relative">
             <div className="mb-3 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
-                Click dreapta pe harta pentru a adauga o proprietate noua in Bucuresti.
+                {canAddFromMap
+                    ? "Click dreapta pe harta pentru a adauga o proprietate noua in Bucuresti."
+                    : "Acest profil are acces doar pentru vizualizarea hartii."}
             </div>
 
             <MapContainer
@@ -281,15 +304,17 @@ export default function PropertiesMap({
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
 
-                <MapRightClickHandler
-                    onRightClick={openContextMenu}
-                    onMapClick={() =>
-                        setContextMenu((prev) => ({
-                            ...prev,
-                            visible: false,
-                        }))
-                    }
-                />
+                {canAddFromMap && (
+                    <MapRightClickHandler
+                        onRightClick={openContextMenu}
+                        onMapClick={() =>
+                            setContextMenu((prev) => ({
+                                ...prev,
+                                visible: false,
+                            }))
+                        }
+                    />
+                )}
 
                 {properties.map((property) => (
                     <Marker
@@ -327,7 +352,7 @@ export default function PropertiesMap({
                 ))}
             </MapContainer>
 
-            {contextMenu.visible && (
+            {contextMenu.visible && canAddFromMap && (
                 <div
                     className="fixed z-[10001] w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl"
                     style={{
@@ -350,7 +375,7 @@ export default function PropertiesMap({
                 </div>
             )}
 
-            {showForm && (
+            {showForm && canAddFromMap && (
                 <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/70 p-4">
                     <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
                         <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">

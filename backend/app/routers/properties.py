@@ -7,9 +7,12 @@ from app.services.market_service import (
     classify_property_against_market,
     get_latest_sector_market_averages,
 )
+from app.security import require_roles
 
 router = APIRouter(prefix="/properties", tags=["properties"])
 VALID_STATUSES = {"available", "occupied", "sold", "rented", "inactive"}
+CAN_VIEW_PROPERTIES = ("admin", "agent", "manager", "developer")
+CAN_WRITE_PROPERTIES = ("admin", "agent")
 
 
 def serialize_property(p: Property, market_average_sqm: float | None = None):
@@ -39,7 +42,12 @@ def serialize_property(p: Property, market_average_sqm: float | None = None):
 
 
 @router.get("")
-def list_properties(sector_id: int | None = None, status: str | None = None, db: Session = Depends(get_db)):
+def list_properties(
+    sector_id: int | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(CAN_VIEW_PROPERTIES)),
+):
     query = db.query(Property)
     if sector_id:
         query = query.filter(Property.sector_id == sector_id)
@@ -57,7 +65,11 @@ def list_properties(sector_id: int | None = None, status: str | None = None, db:
 
 
 @router.post("")
-def create_property(payload: PropertyCreate, db: Session = Depends(get_db)):
+def create_property(
+    payload: PropertyCreate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(CAN_WRITE_PROPERTIES)),
+):
     if payload.status not in VALID_STATUSES:
         raise HTTPException(status_code=400, detail="Status invalid. Alege unul dintre: available, occupied, sold, rented, inactive.")
 
@@ -91,7 +103,11 @@ def create_property(payload: PropertyCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{property_id}")
-def get_property(property_id: int, db: Session = Depends(get_db)):
+def get_property(
+    property_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(CAN_VIEW_PROPERTIES)),
+):
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Proprietatea nu exista")
@@ -100,7 +116,12 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{property_id}")
-def update_property(property_id: int, payload: PropertyUpdate, db: Session = Depends(get_db)):
+def update_property(
+    property_id: int,
+    payload: PropertyUpdate,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(CAN_WRITE_PROPERTIES)),
+):
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Proprietatea nu exista")
@@ -115,7 +136,11 @@ def update_property(property_id: int, payload: PropertyUpdate, db: Session = Dep
 
 
 @router.delete("/{property_id}")
-def delete_property(property_id: int, db: Session = Depends(get_db)):
+def delete_property(
+    property_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_roles(("admin",))),
+):
     prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         raise HTTPException(status_code=404, detail="Proprietatea nu exista")
