@@ -9,6 +9,7 @@ import {
   canViewForecasts,
   canViewMap,
   canViewProperties,
+  canManageUsers,
   GeoEstateUser,
   getCurrentUser,
   logoutUser,
@@ -20,6 +21,7 @@ const navItems = [
   { href: "/map", label: "Harta", canView: canViewMap },
   { href: "/analytics", label: "Analiza", canView: canViewAnalytics },
   { href: "/forecasts", label: "Previziuni", canView: canViewForecasts },
+  { href: "/users", label: "Users", canView: canManageUsers },
 ];
 
 function getFirstAllowedRoute(user: GeoEstateUser | null) {
@@ -31,7 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<GeoEstateUser | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const protectedRoutes = ["/dashboard", "/properties", "/map", "/analytics", "/forecasts"];
+  const protectedRoutes = ["/dashboard", "/properties", "/map", "/analytics", "/forecasts", "/users"];
   const isHomePage = pathname === "/";
   const authPages = ["/login", "/register", "/forgot-password"];
   const isAuthPage = authPages.includes(pathname);

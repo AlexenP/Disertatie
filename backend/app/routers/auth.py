@@ -76,7 +76,12 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             detail="Email sau parola incorecta."
         )
 
-    token = f"demo-token-{db_user.role}" if email in DEMO_USERS else f"demo-token-admin-{db_user.id}"
+    if email in DEMO_USERS:
+        token = f"demo-token-{db_user.role}"
+    elif db_user.role == "admin":
+        token = f"demo-token-admin-{db_user.id}"
+    else:
+        token = f"demo-token-user-{db_user.id}"
 
     return {
         "email": email,

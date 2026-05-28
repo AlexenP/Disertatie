@@ -66,6 +66,11 @@ def get_current_user(
 
         if user_id.isdigit():
             user = db.query(User).filter(User.id == int(user_id), User.role == "admin").first()
+    elif token.startswith("demo-token-user-"):
+        user_id = token.removeprefix("demo-token-user-")
+
+        if user_id.isdigit():
+            user = db.query(User).filter(User.id == int(user_id)).first()
 
     if not user:
         raise HTTPException(
