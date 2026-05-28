@@ -57,7 +57,7 @@ def export_properties_excel(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_roles(CAN_EXPORT_REPORTS)),
 ):
-    query = db.query(Property)
+    query = db.query(Property).filter(Property.owner_admin_id == current_user["portfolio_admin_id"])
 
     if title_query:
         query = query.filter(Property.title.ilike(to_contains_pattern(title_query)))

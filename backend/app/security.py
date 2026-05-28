@@ -1,5 +1,9 @@
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models.models import User
 
 
 security = HTTPBearer(auto_error=False)
@@ -37,7 +41,10 @@ DEMO_TOKEN_USERS = {
 }
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
     if credentials is None:
         raise HTTPException(
             status_code=401,
@@ -49,7 +56,16 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     if token.startswith("Bearer "):
         token = token.removeprefix("Bearer ").strip()
 
-    user = DEMO_TOKEN_USERS.get(token)
+    token_user = DEMO_TOKEN_USERS.get(token)
+    user = None
+
+    if token_user:
+        user = db.query(User).filter(User.email == token_user["email"]).first()
+    elif token.startswith("demo-token-admin-"):
+        user_id = token.removeprefix("demo-token-admin-")
+
+        if user_id.isdigit():
+            user = db.query(User).filter(User.id == int(user_id), User.role == "admin").first()
 
     if not user:
         raise HTTPException(
@@ -57,7 +73,24 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             detail="Trebuie sa fii autentificat pentru aceasta actiune.",
         )
 
-    return user
+    portfolio_admin_id = user.id if user.role == "admin" else user.admin_id
+
+    if portfolio_admin_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Nu ai permisiunea necesara pentru aceasta actiune.",
+        )
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role,
+        "role_name": user.role_name,
+        "admin_id": user.admin_id,
+        "portfolio_admin_id": portfolio_admin_id,
+        "token": token,
+    }
 
 
 def require_roles(allowed_roles: list[str] | tuple[str, ...]):

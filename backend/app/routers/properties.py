@@ -33,6 +33,7 @@ def serialize_property(p: Property, market_average_sqm: float | None = None):
         "status": p.status,
         "interested_clients": p.interested_clients,
         "views_count": p.views_count,
+        "owner_admin_id": p.owner_admin_id,
         "created_at": p.created_at,
         "price_per_sqm": p.price_per_sqm,
         **market_data,
@@ -48,7 +49,8 @@ def list_properties(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_roles(CAN_VIEW_PROPERTIES)),
 ):
-    query = db.query(Property)
+    portfolio_admin_id = current_user["portfolio_admin_id"]
+    query = db.query(Property).filter(Property.owner_admin_id == portfolio_admin_id)
     if sector_id:
         query = query.filter(Property.sector_id == sector_id)
     if status:
@@ -85,7 +87,11 @@ def create_property(
     last_property = db.query(Property).order_by(Property.id.desc()).first()
     next_id = (last_property.id + 1) if last_property else 1
 
-    prop = Property(code=f"PROP-{next_id:06d}", **payload.model_dump())
+    prop = Property(
+        code=f"PROP-{next_id:06d}",
+        owner_admin_id=current_user["portfolio_admin_id"],
+        **payload.model_dump(),
+    )
 
     try:
         db.add(prop)
@@ -108,7 +114,14 @@ def get_property(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_roles(CAN_VIEW_PROPERTIES)),
 ):
-    prop = db.query(Property).filter(Property.id == property_id).first()
+    prop = (
+        db.query(Property)
+        .filter(
+            Property.id == property_id,
+            Property.owner_admin_id == current_user["portfolio_admin_id"],
+        )
+        .first()
+    )
     if not prop:
         raise HTTPException(status_code=404, detail="Proprietatea nu exista")
     market_average = get_latest_sector_market_averages(db, [prop.sector_id]).get(prop.sector_id)
@@ -122,7 +135,14 @@ def update_property(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_roles(CAN_WRITE_PROPERTIES)),
 ):
-    prop = db.query(Property).filter(Property.id == property_id).first()
+    prop = (
+        db.query(Property)
+        .filter(
+            Property.id == property_id,
+            Property.owner_admin_id == current_user["portfolio_admin_id"],
+        )
+        .first()
+    )
     if not prop:
         raise HTTPException(status_code=404, detail="Proprietatea nu exista")
     if payload.status not in VALID_STATUSES:
@@ -141,7 +161,14 @@ def delete_property(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_roles(("admin",))),
 ):
-    prop = db.query(Property).filter(Property.id == property_id).first()
+    prop = (
+        db.query(Property)
+        .filter(
+            Property.id == property_id,
+            Property.owner_admin_id == current_user["portfolio_admin_id"],
+        )
+        .first()
+    )
     if not prop:
         raise HTTPException(status_code=404, detail="Proprietatea nu exista")
     db.delete(prop)

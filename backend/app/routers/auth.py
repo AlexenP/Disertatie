@@ -1,5 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models.models import Role, User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -62,27 +66,29 @@ def normalize_email(email: str) -> str:
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(payload: LoginRequest):
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
     email = normalize_email(payload.email)
-    user = DEMO_USERS.get(email)
+    db_user = db.query(User).filter(User.email == email).first()
 
-    if not user or user["password"] != payload.password:
+    if not db_user or db_user.password_hash != payload.password:
         raise HTTPException(
             status_code=401,
             detail="Email sau parola incorecta."
         )
 
+    token = f"demo-token-{db_user.role}" if email in DEMO_USERS else f"demo-token-admin-{db_user.id}"
+
     return {
         "email": email,
-        "full_name": user["full_name"],
-        "role": user["role"],
-        "role_name": user["role_name"],
-        "token": f"demo-token-{user['role']}",
+        "full_name": db_user.full_name,
+        "role": db_user.role,
+        "role_name": db_user.role_name,
+        "token": token,
     }
 
 
 @router.post("/register", response_model=LoginResponse)
-def register(payload: RegisterRequest):
+def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     email = normalize_email(payload.email)
     full_name = payload.full_name.strip()
 
@@ -92,32 +98,45 @@ def register(payload: RegisterRequest):
     if not email:
         raise HTTPException(status_code=400, detail="Emailul este obligatoriu.")
 
-    if email in DEMO_USERS:
+    if db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=400, detail="Exista deja un cont cu acest email.")
 
     if len(payload.password) < 6:
         raise HTTPException(status_code=400, detail="Parola trebuie sa aiba minimum 6 caractere.")
 
-    DEMO_USERS[email] = {
-        "password": payload.password,
-        "full_name": full_name,
-        "role": "admin",
-        "role_name": "Administrator",
-    }
+    admin_role = db.query(Role).filter(Role.name == "admin").first()
+
+    if not admin_role:
+        admin_role = Role(name="admin")
+        db.add(admin_role)
+        db.flush()
+
+    user = User(
+        full_name=full_name,
+        email=email,
+        password_hash=payload.password,
+        role="admin",
+        role_name="Administrator",
+        role_id=admin_role.id,
+        admin_id=None,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
 
     return {
         "email": email,
         "full_name": full_name,
         "role": "admin",
         "role_name": "Administrator",
-        "token": "demo-token-admin",
+        "token": f"demo-token-admin-{user.id}",
     }
 
 
 @router.post("/reset-password")
-def reset_password(payload: ResetPasswordRequest):
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
     email = normalize_email(payload.email)
-    user = DEMO_USERS.get(email)
+    user = db.query(User).filter(User.email == email).first()
 
     if not user:
         raise HTTPException(status_code=404, detail="Emailul nu exista.")
@@ -128,7 +147,8 @@ def reset_password(payload: ResetPasswordRequest):
     if len(payload.new_password) < 6:
         raise HTTPException(status_code=400, detail="Parola trebuie sa aiba minimum 6 caractere.")
 
-    user["password"] = payload.new_password
+    user.password_hash = payload.new_password
+    db.commit()
 
     return {"message": "Parola a fost resetata cu succes."}
 

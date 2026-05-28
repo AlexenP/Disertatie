@@ -14,12 +14,52 @@ try:
         print("Baza de date are deja date demo.")
         raise SystemExit
 
-    roles = ["agent_imobiliar", "administrator_proprietati", "dezvoltator_imobiliar"]
+    roles = ["admin", "agent", "manager", "developer"]
     for role_name in roles:
         db.add(Role(name=role_name))
     db.commit()
+    role_ids = {role.name: role.id for role in db.query(Role).all()}
 
-    db.add(User(full_name="Admin Demo", email="admin@geoestate.ro", password_hash="demo", role_id=1))
+    admin_demo = User(
+        full_name="Administrator GeoEstate",
+        email="admin@geoestate.ro",
+        password_hash="admin123",
+        role="admin",
+        role_name="Administrator",
+        role_id=role_ids["admin"],
+    )
+    db.add(admin_demo)
+    db.flush()
+
+    db.add_all([
+        User(
+            full_name="Agent Imobiliar",
+            email="agent@geoestate.ro",
+            password_hash="agent123",
+            role="agent",
+            role_name="Agent imobiliar",
+            role_id=role_ids["agent"],
+            admin_id=admin_demo.id,
+        ),
+        User(
+            full_name="Manager Portofoliu",
+            email="manager@geoestate.ro",
+            password_hash="manager123",
+            role="manager",
+            role_name="Manager portofoliu",
+            role_id=role_ids["manager"],
+            admin_id=admin_demo.id,
+        ),
+        User(
+            full_name="Dezvoltator Imobiliar",
+            email="developer@geoestate.ro",
+            password_hash="developer123",
+            role="developer",
+            role_name="Dezvoltator imobiliar",
+            role_id=role_ids["developer"],
+            admin_id=admin_demo.id,
+        ),
+    ])
 
     sectors = [
         ("Sector 1", "SEC-01", 44.4710, 26.0730),
@@ -81,6 +121,7 @@ try:
                 status=choice(["available", "rented", "occupied", "sold"]),
                 interested_clients=randint(0, 18),
                 views_count=randint(10, 220),
+                owner_admin_id=admin_demo.id,
             ))
             code_number += 1
 

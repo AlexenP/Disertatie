@@ -14,7 +14,7 @@ def dashboard(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_roles(CAN_VIEW_ANALYTICS)),
 ):
-    return get_dashboard(db)
+    return get_dashboard(db, current_user["portfolio_admin_id"])
 
 
 @router.get("/analytics/sectors")
@@ -22,7 +22,7 @@ def sector_analytics(
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_roles(CAN_VIEW_ANALYTICS)),
 ):
-    return get_sector_analytics(db)
+    return get_sector_analytics(db, current_user["portfolio_admin_id"])
 
 
 @router.get("/forecast/{sector_id}")

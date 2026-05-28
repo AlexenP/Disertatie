@@ -5,8 +5,8 @@ from app.models.models import Property, Sector
 OCCUPIED_STATUSES = {"occupied", "rented", "sold"}
 
 
-def get_dashboard(db: Session):
-    properties = db.query(Property).all()
+def get_dashboard(db: Session, portfolio_admin_id: int):
+    properties = db.query(Property).filter(Property.owner_admin_id == portfolio_admin_id).all()
     if not properties:
         return {
             "total_properties": 0,
@@ -45,11 +45,11 @@ def get_dashboard(db: Session):
     }
 
 
-def get_sector_analytics(db: Session):
+def get_sector_analytics(db: Session, portfolio_admin_id: int):
     sectors = db.query(Sector).all()
     result = []
     for sector in sectors:
-        props = sector.properties
+        props = [prop for prop in sector.properties if prop.owner_admin_id == portfolio_admin_id]
         if not props:
             continue
         result.append({

@@ -2,11 +2,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.database import Base, engine
+from app.db_migrations import ensure_portfolio_schema
 from app.routers import properties, reports, sectors, analytics
 from app.models import models
 from app.routers import auth
 
 Base.metadata.create_all(bind=engine)
+ensure_portfolio_schema(engine)
 
 app = FastAPI(title="GeoEstate Bucuresti API")
 

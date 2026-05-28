@@ -9,7 +9,7 @@ class Role(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
-    users = relationship("User", back_populates="role")
+    users = relationship("User", back_populates="role_record")
 
 
 class User(Base):
@@ -19,9 +19,14 @@ class User(Base):
     full_name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String, nullable=False)
-    role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
+    role = Column(String, nullable=False, default="admin")
+    role_name = Column(String, nullable=False, default="Administrator")
+    admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    role = relationship("Role", back_populates="users")
+    role_record = relationship("Role", back_populates="users")
+    admin = relationship("User", remote_side=[id])
 
 
 class Sector(Base):
@@ -63,10 +68,12 @@ class Property(Base):
     status = Column(String, nullable=False, default="available")
     interested_clients = Column(Integer, nullable=False, default=0)
     views_count = Column(Integer, nullable=False, default=0)
+    owner_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     sector = relationship("Sector", back_populates="properties")
     property_type = relationship("PropertyType", back_populates="properties")
+    owner_admin = relationship("User")
 
     @property
     def price_per_sqm(self) -> float:

@@ -1,7 +1,42 @@
-import { apiGet, SectorAnalytics } from "@/lib/api";
+"use client";
 
-export default async function AnalyticsPage() {
-  const rows = await apiGet<SectorAnalytics[]>("/analytics/sectors");
+import {useEffect, useState} from "react";
+import {apiGet, SectorAnalytics} from "@/lib/api";
+
+export default function AnalyticsPage() {
+  const [rows, setRows] = useState<SectorAnalytics[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadAnalytics() {
+      try {
+        setLoading(true);
+        const data = await apiGet<SectorAnalytics[]>("/analytics/sectors");
+        setRows(data);
+        setError("");
+      } catch {
+        setError("Nu se poate incarca analiza pe sectoare. Verifica daca esti autentificat si backend-ul FastAPI ruleaza.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadAnalytics();
+  }, []);
+
+  if (loading) {
+    return <p>Se incarca analiza pe sectoare...</p>;
+  }
+
+  if (error) {
+    return (
+      <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <h2 className="text-2xl font-bold text-red-600">Eroare incarcare analiza</h2>
+        <p className="mt-2 text-slate-600">{error}</p>
+      </section>
+    );
+  }
 
   return (
     <section className="space-y-6">

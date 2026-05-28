@@ -55,6 +55,7 @@ export type PropertyItem = {
   market_label: "sub_piata" | "la_piata" | "peste_piata";
   monthly_rent: number;
   status: string;
+  owner_admin_id?: number;
   interested_clients: number;
   views_count: number;
 };
