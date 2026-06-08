@@ -7,9 +7,10 @@ import {
     Marker,
     Popup,
     useMapEvents,
+    useMap,
 } from "react-leaflet";
 import L from "leaflet";
-import {getAuthHeaders, PropertyItem} from "@/lib/api";
+import {apiGet, getAuthHeaders, PropertyItem} from "@/lib/api";
 import {canAddPropertyFromMap, GeoEstateUser, getCurrentUser} from "@/lib/auth";
 import {detectBucharestSector} from "@/lib/bucharestSectors";
 
@@ -37,6 +38,13 @@ type ContextMenuState = {
     y: number;
     lat: number;
     lng: number;
+};
+
+type GeocodingResult = {
+    display_name: string;
+    latitude: number;
+    longitude: number;
+    type?: string;
 };
 
 const defaultIcon = L.icon({
@@ -109,6 +117,27 @@ function MapRightClickHandler({
     return null;
 }
 
+function FlyToSearchLocation({
+                                 location,
+                             }: {
+    location: GeocodingResult | null;
+}) {
+    const map = useMap();
+
+    useEffect(() => {
+        if (!location) {
+            return;
+        }
+
+        map.flyTo([location.latitude, location.longitude], 16, {
+            animate: true,
+            duration: 0.8,
+        });
+    }, [location, map]);
+
+    return null;
+}
+
 async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
     try {
         const response = await fetch(`http://127.0.0.1:8000${path}`, {
@@ -173,6 +202,11 @@ export default function PropertiesMap({
         lat: 44.4268,
         lng: 26.1025,
     });
+    const [searchQuery, setSearchQuery] = useState("");
+    const [searchResults, setSearchResults] = useState<GeocodingResult[]>([]);
+    const [selectedSearchLocation, setSelectedSearchLocation] = useState<GeocodingResult | null>(null);
+    const [searchLoading, setSearchLoading] = useState(false);
+    const [searchError, setSearchError] = useState("");
     const canAddFromMap = canAddPropertyFromMap(currentUser);
 
     useEffect(() => {
@@ -227,15 +261,21 @@ export default function PropertiesMap({
         });
     }
 
-    function openFormFromContextMenu() {
+    function openCreatePropertyForm(
+        latitude: number,
+        longitude: number,
+        address: string,
+        failureMessage = "Locatia gasita nu a putut fi incadrata intr-un sector. Selecteaza manual o locatie din Bucuresti."
+    ) {
         if (!canAddFromMap) {
             return;
         }
 
-        const detectedSector = detectBucharestSector(contextMenu.lat, contextMenu.lng);
+        const detectedSector = detectBucharestSector(latitude, longitude);
 
         if (!detectedSector) {
-            setFormError("Locatia selectata nu a putut fi incadrata intr-un sector. Selecteaza un punct din Bucuresti.");
+            setFormError(failureMessage);
+            setSearchError(failureMessage);
             setContextMenu((prev) => ({
                 ...prev,
                 visible: false,
@@ -247,17 +287,74 @@ export default function PropertiesMap({
         setForm({
             ...emptyForm,
             sector_id: detectedSector,
-            latitude: Number(contextMenu.lat.toFixed(6)),
-            longitude: Number(contextMenu.lng.toFixed(6)),
-            address: "Locatie selectata pe harta, Bucuresti",
+            latitude: Number(latitude.toFixed(6)),
+            longitude: Number(longitude.toFixed(6)),
+            address,
         });
 
         setFormError("");
+        setSearchError("");
         setShowForm(true);
         setContextMenu((prev) => ({
             ...prev,
             visible: false,
         }));
+    }
+
+    function openFormFromContextMenu() {
+        openCreatePropertyForm(
+            contextMenu.lat,
+            contextMenu.lng,
+            "Locatie selectata pe harta, Bucuresti",
+            "Locatia selectata nu a putut fi incadrata intr-un sector. Selecteaza un punct din Bucuresti."
+        );
+    }
+
+    function handleAddPropertyFromSearchLocation(location: GeocodingResult) {
+        openCreatePropertyForm(
+            location.latitude,
+            location.longitude,
+            location.display_name || "Locatie gasita in Bucuresti"
+        );
+    }
+
+    async function handleLocationSearch() {
+        const query = searchQuery.trim();
+
+        if (query.length < 3) {
+            setSearchError("Introdu cel putin 3 caractere.");
+            return;
+        }
+
+        try {
+            setSearchLoading(true);
+            setSearchError("");
+
+            const results = await apiGet<GeocodingResult[]>(
+                `/geocoding/search?query=${encodeURIComponent(query)}`
+            );
+
+            setSearchResults(results);
+
+            if (!results.length) {
+                setSelectedSearchLocation(null);
+                setSearchError("Nu am gasit locatia cautata in Bucuresti.");
+                return;
+            }
+
+            setSelectedSearchLocation(results[0]);
+        } catch {
+            setSearchError("Nu se poate cauta locatia momentan.");
+        } finally {
+            setSearchLoading(false);
+        }
+    }
+
+    function clearSearch() {
+        setSearchQuery("");
+        setSearchResults([]);
+        setSelectedSearchLocation(null);
+        setSearchError("");
     }
 
     async function saveProperty() {
@@ -313,64 +410,169 @@ export default function PropertiesMap({
                 </div>
             )}
 
-            <MapContainer
-                center={[44.4268, 26.1025]}
-                zoom={12}
-                scrollWheelZoom={true}
-                className="h-full min-h-0 w-full flex-1 rounded-2xl"
-            >
-                <TileLayer
-                    attribution='&copy; OpenStreetMap contributors'
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                />
+            <div className="relative min-h-0 w-full flex-1">
+                <div className="absolute left-4 top-4 z-[1000] w-[440px] max-w-[calc(100%-2rem)]">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                        <div className="flex gap-2">
+                            <input
+                                value={searchQuery}
+                                onChange={(event) => setSearchQuery(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                        event.preventDefault();
+                                        handleLocationSearch();
+                                    }
+                                }}
+                                placeholder="Cauta adresa sau zona in Bucuresti"
+                                className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                            />
 
-                {canAddFromMap && (
-                    <MapRightClickHandler
-                        onRightClick={openContextMenu}
-                        onMapClick={() =>
-                            setContextMenu((prev) => ({
-                                ...prev,
-                                visible: false,
-                            }))
-                        }
-                    />
-                )}
+                            {searchQuery && (
+                                <button
+                                    type="button"
+                                    onClick={clearSearch}
+                                    className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                                    aria-label="Sterge cautarea"
+                                >
+                                    X
+                                </button>
+                            )}
 
-                {properties.map((property) => (
-                    <Marker
-                        key={property.id}
-                        position={[property.latitude, property.longitude]}
-                        icon={property.market_label ? createMarketIcon(property.market_label) : defaultIcon}
-                    >
-                        <Popup>
-                            <div className="space-y-1">
-                                <strong>{property.title}</strong>
-                                <div>{property.address}</div>
-                                <div>Sector {property.sector_id}</div>
-                                <div>{property.surface_sqm} mp</div>
-                                <div>{property.price.toLocaleString()} EUR</div>
-                                <div>
-                                    {property.price_sqm.toFixed(2)} EUR/mp
-                                </div>
-                                <div>
-                                    Clasificare: {marketLabels[property.market_label] ?? "La piata"}
-                                </div>
-                                {property.market_average_sqm !== null && (
-                                    <div>
-                                        Media sectorului: {property.market_average_sqm.toFixed(2)} EUR/mp
-                                    </div>
-                                )}
-                                {property.market_difference_percent !== null && (
-                                    <div>
-                                        Diferenta: {property.market_difference_percent > 0 ? "+" : ""}
-                                        {property.market_difference_percent.toFixed(2)}%
-                                    </div>
-                                )}
+                            <button
+                                type="button"
+                                onClick={handleLocationSearch}
+                                disabled={searchLoading}
+                                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                {searchLoading ? "Caut..." : "Cauta"}
+                            </button>
+                        </div>
+
+                        {searchError && (
+                            <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+                                {searchError}
+                            </p>
+                        )}
+
+                        {searchResults.length > 1 && (
+                            <div className="mt-2 max-h-64 overflow-auto rounded-xl border border-slate-100 bg-white shadow-sm">
+                                {searchResults.map((result, index) => (
+                                    <button
+                                        key={`${result.latitude}-${result.longitude}-${index}`}
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedSearchLocation(result);
+                                            setSearchError("");
+                                        }}
+                                        className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-sm transition last:border-b-0 hover:bg-slate-50 ${
+                                            selectedSearchLocation === result
+                                                ? "bg-blue-50 text-blue-900"
+                                                : "text-slate-700"
+                                        }`}
+                                    >
+                                        <span className="line-clamp-2">{result.display_name}</span>
+                                    </button>
+                                ))}
                             </div>
-                        </Popup>
-                    </Marker>
-                ))}
-            </MapContainer>
+                        )}
+
+                        <p className="mt-2 px-1 text-[11px] text-slate-400">
+                            Cautare locatie prin OpenStreetMap Nominatim
+                        </p>
+                    </div>
+                </div>
+
+                <MapContainer
+                    center={[44.4268, 26.1025]}
+                    zoom={12}
+                    scrollWheelZoom={true}
+                    className="h-full min-h-0 w-full rounded-2xl"
+                >
+                    <TileLayer
+                        attribution='&copy; OpenStreetMap contributors'
+                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+
+                    <FlyToSearchLocation location={selectedSearchLocation} />
+
+                    {canAddFromMap && (
+                        <MapRightClickHandler
+                            onRightClick={openContextMenu}
+                            onMapClick={() =>
+                                setContextMenu((prev) => ({
+                                    ...prev,
+                                    visible: false,
+                                }))
+                            }
+                        />
+                    )}
+
+                    {selectedSearchLocation && (
+                        <Marker
+                            position={[
+                                selectedSearchLocation.latitude,
+                                selectedSearchLocation.longitude,
+                            ]}
+                            icon={defaultIcon}
+                        >
+                            <Popup>
+                                <div className="max-w-xs space-y-3">
+                                    <strong className="block text-sm text-slate-900">
+                                        {selectedSearchLocation.display_name}
+                                    </strong>
+
+                                    {canAddFromMap && (
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                handleAddPropertyFromSearchLocation(selectedSearchLocation)
+                                            }
+                                            className="w-full rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                                        >
+                                            Adauga proprietate aici
+                                        </button>
+                                    )}
+                                </div>
+                            </Popup>
+                        </Marker>
+                    )}
+
+                    {properties.map((property) => (
+                        <Marker
+                            key={property.id}
+                            position={[property.latitude, property.longitude]}
+                            icon={property.market_label ? createMarketIcon(property.market_label) : defaultIcon}
+                        >
+                            <Popup>
+                                <div className="space-y-1">
+                                    <strong>{property.title}</strong>
+                                    <div>{property.address}</div>
+                                    <div>Sector {property.sector_id}</div>
+                                    <div>{property.surface_sqm} mp</div>
+                                    <div>{property.price.toLocaleString()} EUR</div>
+                                    <div>
+                                        {property.price_sqm.toFixed(2)} EUR/mp
+                                    </div>
+                                    <div>
+                                        Clasificare: {marketLabels[property.market_label] ?? "La piata"}
+                                    </div>
+                                    {property.market_average_sqm !== null && (
+                                        <div>
+                                            Media sectorului: {property.market_average_sqm.toFixed(2)} EUR/mp
+                                        </div>
+                                    )}
+                                    {property.market_difference_percent !== null && (
+                                        <div>
+                                            Diferenta: {property.market_difference_percent > 0 ? "+" : ""}
+                                            {property.market_difference_percent.toFixed(2)}%
+                                        </div>
+                                    )}
+                                </div>
+                            </Popup>
+                        </Marker>
+                    ))}
+                </MapContainer>
+            </div>
 
             {contextMenu.visible && canAddFromMap && (
                 <div

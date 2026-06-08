@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from app.database import Base, engine
 from app.db_migrations import ensure_portfolio_schema
-from app.routers import properties, reports, sectors, analytics, users
+from app.routers import properties, reports, sectors, analytics, users, geocoding
 from app.models import models
 from app.routers import auth
 
@@ -25,6 +25,7 @@ app.include_router(reports.router)
 app.include_router(sectors.router)
 app.include_router(analytics.router)
 app.include_router(users.router)
+app.include_router(geocoding.router)
 app.include_router(auth.router)
 
 
