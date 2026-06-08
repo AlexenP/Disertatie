@@ -11,8 +11,15 @@ import {
 } from "react-leaflet";
 import L from "leaflet";
 import {apiGet, getAuthHeaders, PropertyItem} from "@/lib/api";
-import {canAddPropertyFromMap, GeoEstateUser, getCurrentUser} from "@/lib/auth";
+import {
+    canAddPropertyFromMap,
+    canDeleteProperty,
+    canEditProperty,
+    GeoEstateUser,
+    getCurrentUser,
+} from "@/lib/auth";
 import {detectBucharestSector} from "@/lib/bucharestSectors";
+import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
 
 type PropertyForm = {
     title: string;
@@ -64,6 +71,14 @@ const marketLabels: Record<PropertyItem["market_label"], string> = {
     sub_piata: "Sub piata",
     la_piata: "La piata",
     peste_piata: "Peste piata",
+};
+
+const statusLabels: Record<string, string> = {
+    available: "Disponibila",
+    rented: "Inchiriata",
+    occupied: "Ocupata",
+    sold: "Vanduta",
+    inactive: "Inactiva",
 };
 
 function createMarketIcon(label: PropertyItem["market_label"]) {
@@ -191,10 +206,15 @@ export default function PropertiesMap({
                                           onPropertyCreated,
                                       }: PropertiesMapProps) {
     const [currentUser, setCurrentUser] = useState<GeoEstateUser | null>(null);
+    const [displayProperties, setDisplayProperties] = useState<PropertyItem[]>(properties);
     const [showForm, setShowForm] = useState(false);
+    const [editingProperty, setEditingProperty] = useState<PropertyItem | null>(null);
+    const [propertyToDelete, setPropertyToDelete] = useState<PropertyItem | null>(null);
     const [form, setForm] = useState<PropertyForm>(emptyForm);
     const [formError, setFormError] = useState("");
     const [saving, setSaving] = useState(false);
+    const [deleteLoading, setDeleteLoading] = useState(false);
+    const [mapMessage, setMapMessage] = useState("");
     const [contextMenu, setContextMenu] = useState<ContextMenuState>({
         visible: false,
         x: 0,
@@ -208,10 +228,16 @@ export default function PropertiesMap({
     const [searchLoading, setSearchLoading] = useState(false);
     const [searchError, setSearchError] = useState("");
     const canAddFromMap = canAddPropertyFromMap(currentUser);
+    const canEditProperties = canEditProperty(currentUser);
+    const canDeleteProperties = canDeleteProperty(currentUser);
 
     useEffect(() => {
         setCurrentUser(getCurrentUser());
     }, []);
+
+    useEffect(() => {
+        setDisplayProperties(properties);
+    }, [properties]);
 
     function updateField(field: keyof PropertyForm, value: string) {
         setForm((prev) => ({
@@ -261,6 +287,47 @@ export default function PropertiesMap({
         });
     }
 
+    function handleEditProperty(property: PropertyItem) {
+        if (!canEditProperties) {
+            setMapMessage("Nu ai permisiunea necesara pentru editarea proprietatilor.");
+            return;
+        }
+
+        setEditingProperty(property);
+        setForm({
+            title: property.title,
+            address: property.address,
+            sector_id: property.sector_id,
+            property_type_id: property.property_type_id,
+            latitude: property.latitude,
+            longitude: property.longitude,
+            surface_sqm: property.surface_sqm,
+            price: property.price,
+            monthly_rent: property.monthly_rent,
+            status: property.status,
+        });
+        setFormError("");
+        setMapMessage("");
+        setShowForm(true);
+    }
+
+    function handleRequestDeleteProperty(property: PropertyItem) {
+        if (!canDeleteProperties) {
+            setMapMessage("Nu ai permisiunea necesara pentru stergerea proprietatilor.");
+            return;
+        }
+
+        setPropertyToDelete(property);
+        setMapMessage("");
+    }
+
+    function closePropertyForm() {
+        setShowForm(false);
+        setEditingProperty(null);
+        setForm(emptyForm);
+        setFormError("");
+    }
+
     function openCreatePropertyForm(
         latitude: number,
         longitude: number,
@@ -294,6 +361,8 @@ export default function PropertiesMap({
 
         setFormError("");
         setSearchError("");
+        setEditingProperty(null);
+        setMapMessage("");
         setShowForm(true);
         setContextMenu((prev) => ({
             ...prev,
@@ -358,7 +427,7 @@ export default function PropertiesMap({
     }
 
     async function saveProperty() {
-        if (!canAddFromMap) {
+        if (editingProperty ? !canEditProperties : !canAddFromMap) {
             return;
         }
 
@@ -373,12 +442,30 @@ export default function PropertiesMap({
             setSaving(true);
             setFormError("");
 
-            await apiRequest("/properties", {
-                method: "POST",
-                body: JSON.stringify(form),
-            });
+            if (editingProperty) {
+                const updatedProperty = await apiRequest<PropertyItem>(`/properties/${editingProperty.id}`, {
+                    method: "PUT",
+                    body: JSON.stringify(form),
+                });
+
+                setDisplayProperties((current) =>
+                    current.map((item) =>
+                        item.id === updatedProperty.id ? updatedProperty : item
+                    )
+                );
+                setMapMessage("Proprietatea a fost actualizata.");
+            } else {
+                const createdProperty = await apiRequest<PropertyItem>("/properties", {
+                    method: "POST",
+                    body: JSON.stringify(form),
+                });
+
+                setDisplayProperties((current) => [...current, createdProperty]);
+                setMapMessage("Proprietatea a fost adaugata.");
+            }
 
             setShowForm(false);
+            setEditingProperty(null);
             setForm(emptyForm);
 
             if (onPropertyCreated) {
@@ -396,6 +483,35 @@ export default function PropertiesMap({
         }
     }
 
+    async function handleConfirmDeleteProperty() {
+        if (!propertyToDelete) {
+            return;
+        }
+
+        try {
+            setDeleteLoading(true);
+            setMapMessage("");
+
+            await apiRequest(`/properties/${propertyToDelete.id}`, {
+                method: "DELETE",
+            });
+
+            setDisplayProperties((current) =>
+                current.filter((item) => item.id !== propertyToDelete.id)
+            );
+            setPropertyToDelete(null);
+            setMapMessage("Proprietatea a fost stearsa.");
+
+            if (onPropertyCreated) {
+                onPropertyCreated();
+            }
+        } catch {
+            setMapMessage("Proprietatea nu a putut fi stearsa.");
+        } finally {
+            setDeleteLoading(false);
+        }
+    }
+
     return (
         <div className="relative flex min-h-0 flex-1 flex-col w-full">
             <div className="mb-3 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
@@ -407,6 +523,12 @@ export default function PropertiesMap({
             {formError && !showForm && (
                 <div className="mb-3 rounded-2xl bg-red-50 p-4 text-sm text-red-700 ring-1 ring-red-200">
                     {formError}
+                </div>
+            )}
+
+            {mapMessage && !showForm && (
+                <div className="mb-3 rounded-2xl bg-slate-50 p-4 text-sm text-slate-700 ring-1 ring-slate-200">
+                    {mapMessage}
                 </div>
             )}
 
@@ -537,22 +659,29 @@ export default function PropertiesMap({
                         </Marker>
                     )}
 
-                    {properties.map((property) => (
+                    {displayProperties.map((property) => (
                         <Marker
                             key={property.id}
                             position={[property.latitude, property.longitude]}
                             icon={property.market_label ? createMarketIcon(property.market_label) : defaultIcon}
+                            eventHandlers={{
+                                dblclick: (event) => {
+                                    event.originalEvent?.preventDefault();
+                                    event.originalEvent?.stopPropagation();
+                                    handleEditProperty(property);
+                                },
+                            }}
                         >
                             <Popup>
-                                <div className="space-y-1">
-                                    <strong>{property.title}</strong>
-                                    <div>{property.address}</div>
+                                <div className="min-w-56 space-y-1 text-sm">
+                                    <strong className="block text-slate-900">{property.title}</strong>
+                                    <div className="text-slate-600">{property.address}</div>
                                     <div>Sector {property.sector_id}</div>
-                                    <div>{property.surface_sqm} mp</div>
                                     <div>{property.price.toLocaleString()} EUR</div>
                                     <div>
                                         {property.price_sqm.toFixed(2)} EUR/mp
                                     </div>
+                                    <div>Status: {statusLabels[property.status] ?? property.status}</div>
                                     <div>
                                         Clasificare: {marketLabels[property.market_label] ?? "La piata"}
                                     </div>
@@ -565,6 +694,29 @@ export default function PropertiesMap({
                                         <div>
                                             Diferenta: {property.market_difference_percent > 0 ? "+" : ""}
                                             {property.market_difference_percent.toFixed(2)}%
+                                        </div>
+                                    )}
+                                    {(canEditProperties || canDeleteProperties) && (
+                                        <div className="mt-3 flex gap-2 border-t border-slate-100 pt-3">
+                                            {canEditProperties && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleEditProperty(property)}
+                                                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                                >
+                                                    Editeaza
+                                                </button>
+                                            )}
+
+                                            {canDeleteProperties && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRequestDeleteProperty(property)}
+                                                    className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700"
+                                                >
+                                                    Sterge
+                                                </button>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -597,16 +749,18 @@ export default function PropertiesMap({
                 </div>
             )}
 
-            {showForm && canAddFromMap && (
+            {showForm && (editingProperty ? canEditProperties : canAddFromMap) && (
                 <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-900/70 p-4">
                     <div className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
                         <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
                             <div>
                                 <h3 className="text-2xl font-bold text-slate-900">
-                                    Adaugare proprietate din harta
+                                    {editingProperty ? "Editare proprietate din harta" : "Adaugare proprietate din harta"}
                                 </h3>
                                 <p className="mt-1 text-sm text-slate-500">
-                                    Coordonatele au fost preluate automat din punctul selectat pe harta.
+                                    {editingProperty
+                                        ? "Modifica datele proprietatii selectate de pe harta."
+                                        : "Coordonatele au fost preluate automat din punctul selectat pe harta."}
                                 </p>
 
                                 {formError && (
@@ -619,7 +773,7 @@ export default function PropertiesMap({
                             </div>
 
                             <button
-                                onClick={() => setShowForm(false)}
+                                onClick={closePropertyForm}
                                 className="rounded-full px-3 py-1 text-2xl text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                             >
                                 ×
@@ -682,9 +836,10 @@ export default function PropertiesMap({
                                     onChange={(e) => updateField("property_type_id", e.target.value)}
                                 >
                                     <option value={1}>Apartament</option>
-                                    <option value={2}>Casa</option>
-                                    <option value={3}>Spatiu comercial</option>
-                                    <option value={4}>Birou</option>
+                                    <option value={2}>Garsoniera</option>
+                                    <option value={3}>Casa</option>
+                                    <option value={4}>Spatiu comercial</option>
+                                    <option value={5}>Birou</option>
                                 </select>
                             </div>
 
@@ -754,7 +909,7 @@ export default function PropertiesMap({
 
                         <div className="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-4">
                             <button
-                                onClick={() => setShowForm(false)}
+                                onClick={closePropertyForm}
                                 className="rounded-xl border border-slate-200 px-5 py-3 font-medium hover:bg-slate-50"
                             >
                                 Anuleaza
@@ -765,12 +920,25 @@ export default function PropertiesMap({
                                 disabled={saving}
                                 className="rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
                             >
-                                {saving ? "Se salveaza..." : "Salveaza proprietatea"}
+                                {saving
+                                    ? "Se salveaza..."
+                                    : editingProperty
+                                        ? "Salveaza modificarile"
+                                        : "Salveaza proprietatea"}
                             </button>
                         </div>
                     </div>
                 </div>
             )}
+
+            <ConfirmDeleteModal
+                open={propertyToDelete !== null}
+                message="Esti sigur ca vrei sa stergi proprietatea?"
+                itemName={propertyToDelete?.title}
+                loading={deleteLoading}
+                onCancel={() => setPropertyToDelete(null)}
+                onConfirm={handleConfirmDeleteProperty}
+            />
         </div>
     );
 }

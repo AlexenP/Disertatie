@@ -13,6 +13,7 @@ import {
     getCurrentUser,
 } from "@/lib/auth";
 import {detectBucharestSector} from "@/lib/bucharestSectors";
+import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
 
 const LocationPicker = dynamic(
     () => import("@/components/map/LocationPicker"),
@@ -438,6 +439,8 @@ export default function PropertiesPage() {
     const [sectorFilter, setSectorFilter] = useState("all");
     const [statusFilter, setStatusFilter] = useState("all");
     const [saving, setSaving] = useState(false);
+    const [propertyToDelete, setPropertyToDelete] = useState<PropertyItem | null>(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
     const [showLocationPicker, setShowLocationPicker] = useState(false);
     const [locationSelected, setLocationSelected] = useState(false);
     const [locationMustBeReselected, setLocationMustBeReselected] = useState(false);
@@ -776,26 +779,38 @@ export default function PropertiesPage() {
         }
     }
 
-    async function deleteProperty(id: number, title: string) {
+    function requestDeleteProperty(property: PropertyItem) {
         if (!canDelete) {
             return;
         }
 
-        const confirmed = window.confirm(`Sigur vrei sa stergi proprietatea "${title}"?`);
+        setPropertyToDelete(property);
+    }
 
-        if (!confirmed) {
+    async function confirmDeleteProperty() {
+        if (!propertyToDelete || !canDelete) {
             return;
         }
 
         try {
-            await fetch(`http://127.0.0.1:8000/properties/${id}`, {
+            setDeleteLoading(true);
+            setError("");
+
+            const response = await fetch(`http://127.0.0.1:8000/properties/${propertyToDelete.id}`, {
                 method: "DELETE",
                 headers: getAuthHeaders(),
             });
 
+            if (!response.ok) {
+                throw new Error("Delete failed");
+            }
+
+            setPropertyToDelete(null);
             await loadProperties();
         } catch {
             setError("Proprietatea nu a putut fi stearsa.");
+        } finally {
+            setDeleteLoading(false);
         }
     }
 
@@ -1203,7 +1218,7 @@ export default function PropertiesPage() {
 
                                         {canDelete && (
                                             <button
-                                                onClick={() => deleteProperty(property.id, property.title)}
+                                                onClick={() => requestDeleteProperty(property)}
                                                 className="rounded-xl bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700"
                                             >
                                                 Sterge
@@ -1832,6 +1847,15 @@ export default function PropertiesPage() {
                     </div>
                 </div>
             )}
+
+            <ConfirmDeleteModal
+                open={propertyToDelete !== null}
+                message="Esti sigur ca vrei sa stergi proprietatea?"
+                itemName={propertyToDelete?.title}
+                loading={deleteLoading}
+                onCancel={() => setPropertyToDelete(null)}
+                onConfirm={confirmDeleteProperty}
+            />
         </section>
     );
 }

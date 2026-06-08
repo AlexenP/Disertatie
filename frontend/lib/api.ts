@@ -43,6 +43,7 @@ export type PropertyItem = {
   address: string;
   sector_id: number;
   sector_name: string;
+  property_type_id: number;
   property_type_name: string;
   latitude: number;
   longitude: number;
