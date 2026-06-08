@@ -12,6 +12,7 @@ import {
     GeoEstateUser,
     getCurrentUser,
 } from "@/lib/auth";
+import {detectBucharestSector} from "@/lib/bucharestSectors";
 
 const LocationPicker = dynamic(
     () => import("@/components/map/LocationPicker"),
@@ -438,6 +439,9 @@ export default function PropertiesPage() {
     const [statusFilter, setStatusFilter] = useState("all");
     const [saving, setSaving] = useState(false);
     const [showLocationPicker, setShowLocationPicker] = useState(false);
+    const [locationSelected, setLocationSelected] = useState(false);
+    const [locationMustBeReselected, setLocationMustBeReselected] = useState(false);
+    const [locationMessage, setLocationMessage] = useState("");
     const [showExportFilters, setShowExportFilters] = useState(false);
     const [exportFilters, setExportFilters] = useState<ExportFilters>(emptyExportFilters);
     const [exporting, setExporting] = useState(false);
@@ -559,6 +563,23 @@ export default function PropertiesPage() {
     const rentRangeRight = 100 - ((selectedRentMax - rentBounds.min) / rentRangeSpan) * 100;
 
     function updateField(field: keyof PropertyForm, value: string) {
+        if (field === "sector_id") {
+            const nextSectorId = Number(value);
+
+            if (locationSelected && nextSectorId !== form.sector_id) {
+                setLocationSelected(false);
+                setLocationMustBeReselected(true);
+                setLocationMessage("Sectorul a fost schimbat. Selecteaza din nou locatia de pe harta.");
+                setForm((prev) => ({
+                    ...prev,
+                    sector_id: nextSectorId,
+                    latitude: 0,
+                    longitude: 0,
+                }));
+                return;
+            }
+        }
+
         setForm((prev) => ({
             ...prev,
             [field]:
@@ -566,6 +587,30 @@ export default function PropertiesPage() {
                     ? value
                     : Number(value),
         }));
+    }
+
+    function handleLocationSelect(latitude: number, longitude: number) {
+        const roundedLatitude = Number(latitude.toFixed(6));
+        const roundedLongitude = Number(longitude.toFixed(6));
+        const detectedSector = detectBucharestSector(roundedLatitude, roundedLongitude);
+
+        setForm((prev) => ({
+            ...prev,
+            latitude: roundedLatitude,
+            longitude: roundedLongitude,
+            sector_id: detectedSector ?? prev.sector_id,
+            address:
+                prev.address.trim() ||
+                "Locatie selectata pe harta, Bucuresti",
+        }));
+        setLocationSelected(true);
+        setLocationMustBeReselected(false);
+        setFormError("");
+        setLocationMessage(
+            detectedSector
+                ? `Sectorul a fost detectat automat: Sector ${detectedSector}.`
+                : "Locatia selectata nu a putut fi incadrata intr-un sector. Selecteaza un punct din Bucuresti."
+        );
     }
 
     function startAdd() {
@@ -578,6 +623,9 @@ export default function PropertiesPage() {
         setShowForm(true);
         setError("");
         setFormError("");
+        setLocationSelected(false);
+        setLocationMustBeReselected(false);
+        setLocationMessage("");
     }
 
     function startEdit(property: PropertyItem) {
@@ -602,6 +650,9 @@ export default function PropertiesPage() {
         setShowForm(true);
         setError("");
         setFormError("");
+        setLocationSelected(true);
+        setLocationMustBeReselected(false);
+        setLocationMessage("");
     }
 
     function validateForm() {
@@ -619,6 +670,20 @@ export default function PropertiesPage() {
 
         if (form.sector_id < 1 || form.sector_id > 6) {
             return "Sectorul trebuie sa fie intre 1 si 6.";
+        }
+
+        if (!locationSelected) {
+            return "Selecteaza locatia pe harta pentru sectorul ales.";
+        }
+
+        if (locationMustBeReselected) {
+            return "Selecteaza locatia pe harta pentru sectorul ales.";
+        }
+
+        const detectedSector = detectBucharestSector(form.latitude, form.longitude);
+
+        if (!detectedSector || detectedSector !== form.sector_id) {
+            return "Locatia selectata nu corespunde sectorului ales. Selecteaza din nou locatia pe harta.";
         }
 
         if (form.property_type_id < 1) {
@@ -695,6 +760,9 @@ export default function PropertiesPage() {
             setForm(emptyForm);
             setError("");
             setFormError("");
+            setLocationSelected(false);
+            setLocationMustBeReselected(false);
+            setLocationMessage("");
             await loadProperties();
         } catch (err) {
             const message =
@@ -1539,6 +1607,18 @@ export default function PropertiesPage() {
                                         <p className="mt-1">{formError}</p>
                                     </div>
                                 )}
+
+                                {locationMessage && !formError && (
+                                    <div
+                                        className={`mt-4 rounded-2xl p-4 text-sm ring-1 ${
+                                            locationMustBeReselected
+                                                ? "bg-amber-50 text-amber-700 ring-amber-200"
+                                                : "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                                        }`}
+                                    >
+                                        {locationMessage}
+                                    </div>
+                                )}
                             </div>
 
                             <button
@@ -1580,9 +1660,17 @@ export default function PropertiesPage() {
                                     </button>
                                 </div>
 
-                                <p className="text-xs text-slate-500">
-                                    Locatie selectata: {form.latitude.toFixed(5)}, {form.longitude.toFixed(5)}
-                                </p>
+                                {locationSelected ? (
+                                    <p className="text-xs text-slate-500">
+                                        Locatie selectata: {form.latitude.toFixed(5)}, {form.longitude.toFixed(5)}
+                                    </p>
+                                ) : (
+                                    <p className="text-xs text-amber-600">
+                                        {locationMustBeReselected
+                                            ? "Sectorul a fost schimbat. Selecteaza din nou locatia de pe harta."
+                                            : "Nu ai selectat inca o locatie pe harta."}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="space-y-2">
@@ -1712,25 +1800,27 @@ export default function PropertiesPage() {
                         <LocationPicker
                             latitude={form.latitude}
                             longitude={form.longitude}
-                            onSelect={(latitude, longitude) => {
-                                setForm((prev) => ({
-                                    ...prev,
-                                    latitude: Number(latitude.toFixed(6)),
-                                    longitude: Number(longitude.toFixed(6)),
-                                    address:
-                                        prev.address.trim() ||
-                                        `Locatie selectata pe harta, Bucuresti`,
-                                }));
-                            }}
+                            onSelect={handleLocationSelect}
                         />
 
                         <div className="mt-5 flex items-center justify-between gap-4">
-                            <p className="text-sm text-slate-600">
-                                Coordonate selectate:{" "}
-                                <strong>
-                                    {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}
-                                </strong>
-                            </p>
+                            <div className="text-sm text-slate-600">
+                                {locationSelected ? (
+                                    <p>
+                                        Coordonate selectate:{" "}
+                                        <strong>
+                                            {form.latitude.toFixed(6)}, {form.longitude.toFixed(6)}
+                                        </strong>
+                                    </p>
+                                ) : (
+                                    <p className="font-medium text-amber-700">
+                                        Selecteaza un punct pe harta pentru sectorul ales.
+                                    </p>
+                                )}
+                                {locationMessage && (
+                                    <p className="mt-1 text-xs text-slate-500">{locationMessage}</p>
+                                )}
+                            </div>
 
                             <button
                                 onClick={() => setShowLocationPicker(false)}

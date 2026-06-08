@@ -11,6 +11,7 @@ import {
 import L from "leaflet";
 import {getAuthHeaders, PropertyItem} from "@/lib/api";
 import {canAddPropertyFromMap, GeoEstateUser, getCurrentUser} from "@/lib/auth";
+import {detectBucharestSector} from "@/lib/bucharestSectors";
 
 type PropertyForm = {
     title: string;
@@ -231,8 +232,21 @@ export default function PropertiesMap({
             return;
         }
 
+        const detectedSector = detectBucharestSector(contextMenu.lat, contextMenu.lng);
+
+        if (!detectedSector) {
+            setFormError("Locatia selectata nu a putut fi incadrata intr-un sector. Selecteaza un punct din Bucuresti.");
+            setContextMenu((prev) => ({
+                ...prev,
+                visible: false,
+            }));
+            setShowForm(false);
+            return;
+        }
+
         setForm({
             ...emptyForm,
+            sector_id: detectedSector,
             latitude: Number(contextMenu.lat.toFixed(6)),
             longitude: Number(contextMenu.lng.toFixed(6)),
             address: "Locatie selectata pe harta, Bucuresti",
@@ -286,18 +300,24 @@ export default function PropertiesMap({
     }
 
     return (
-        <div className="relative">
+        <div className="relative flex min-h-0 flex-1 flex-col w-full">
             <div className="mb-3 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
                 {canAddFromMap
                     ? "Click dreapta pe harta pentru a adauga o proprietate noua in Bucuresti."
                     : "Acest profil are acces doar pentru vizualizarea hartii."}
             </div>
 
+            {formError && !showForm && (
+                <div className="mb-3 rounded-2xl bg-red-50 p-4 text-sm text-red-700 ring-1 ring-red-200">
+                    {formError}
+                </div>
+            )}
+
             <MapContainer
                 center={[44.4268, 26.1025]}
                 zoom={12}
                 scrollWheelZoom={true}
-                className="h-[650px] w-full rounded-2xl"
+                className="h-full min-h-0 w-full flex-1 rounded-2xl"
             >
                 <TileLayer
                     attribution='&copy; OpenStreetMap contributors'

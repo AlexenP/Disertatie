@@ -41,7 +41,7 @@ export default function MapPage() {
   }
 
   return (
-    <section className="space-y-6">
+    <section className="flex h-[calc(100vh-4rem)] flex-col gap-6">
       <div className="rounded-3xl bg-slate-900 p-8 text-white shadow-sm">
         <h2 className="text-3xl font-bold">Harta proprietatilor din Bucuresti</h2>
         <p className="mt-2 text-slate-300">
@@ -49,7 +49,7 @@ export default function MapPage() {
         </p>
       </div>
 
-      <div className="overflow-hidden rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+      <div className="flex min-h-0 flex-1 overflow-hidden rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
         <PropertiesMap
           properties={properties}
           onPropertyCreated={loadProperties}
