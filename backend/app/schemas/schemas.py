@@ -62,6 +62,25 @@ class PropertyRead(BaseModel):
     market_average_sqm: Optional[float] = None
     market_difference_percent: Optional[float] = None
     market_label: str
+    accessibility_score: Optional[float] = None
+    facilities_score: Optional[float] = None
+    location_score: Optional[float] = None
+    investment_score: Optional[float] = None
+    poi_metro_count: int = 0
+    poi_transport_count: int = 0
+    poi_education_count: int = 0
+    poi_health_count: int = 0
+    poi_pharmacy_count: int = 0
+    poi_green_count: int = 0
+    poi_commercial_count: int = 0
+    nearest_metro_m: Optional[float] = None
+    nearest_transport_m: Optional[float] = None
+    nearest_school_m: Optional[float] = None
+    nearest_health_m: Optional[float] = None
+    nearest_green_m: Optional[float] = None
+    nearest_commercial_m: Optional[float] = None
+    poi_summary_json: Optional[str] = None
+    poi_last_updated_at: Optional[datetime] = None
     sector_name: Optional[str] = None
     property_type_name: Optional[str] = None
 

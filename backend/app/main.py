@@ -6,6 +6,7 @@ from app.db_migrations import ensure_portfolio_schema
 from app.routers import properties, reports, sectors, analytics, users, geocoding
 from app.models import models
 from app.routers import auth
+from app.services.location_score_service import check_overpass_health
 
 Base.metadata.create_all(bind=engine)
 ensure_portfolio_schema(engine)
@@ -54,3 +55,8 @@ def health_check():
         "database": "connected",
         "app": "GeoEstate Bucuresti",
     }
+
+
+@app.get("/health/overpass")
+async def overpass_health_check():
+    return await check_overpass_health()

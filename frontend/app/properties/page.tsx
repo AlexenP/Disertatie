@@ -40,6 +40,24 @@ type PropertyItem = {
     market_average_sqm: number | null;
     market_difference_percent: number | null;
     market_label: "sub_piata" | "la_piata" | "peste_piata";
+    accessibility_score?: number | null;
+    facilities_score?: number | null;
+    location_score?: number | null;
+    investment_score?: number | null;
+    poi_metro_count?: number;
+    poi_transport_count?: number;
+    poi_education_count?: number;
+    poi_health_count?: number;
+    poi_pharmacy_count?: number;
+    poi_green_count?: number;
+    poi_commercial_count?: number;
+    nearest_metro_m?: number | null;
+    nearest_transport_m?: number | null;
+    nearest_school_m?: number | null;
+    nearest_health_m?: number | null;
+    nearest_green_m?: number | null;
+    nearest_commercial_m?: number | null;
+    poi_last_updated_at?: string | null;
     monthly_rent: number;
     status: string;
     owner_admin_id?: number;
@@ -419,6 +437,46 @@ function MarketBadge({label}: { label: PropertyItem["market_label"] }) {
     );
 }
 
+function ScoreLine({label, value}: { label: string; value?: number | null }) {
+    return (
+        <div className="flex justify-between gap-3 text-xs text-slate-600">
+            <span>{label}</span>
+            <strong className="text-slate-900">
+                {value === null || value === undefined ? "-" : `${value.toFixed(2)} / 100`}
+            </strong>
+        </div>
+    );
+}
+
+function LocationScoresSummary({property}: { property: PropertyItem }) {
+    const hasScores = property.location_score !== null && property.location_score !== undefined;
+
+    if (!hasScores) {
+        return (
+            <div className="mt-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
+                Scorurile de locatie nu au fost calculate.
+            </div>
+        );
+    }
+
+    return (
+        <div className="mt-2 space-y-2 rounded-xl bg-slate-50 p-3">
+            <ScoreLine label="Scor locatie" value={property.location_score}/>
+            <ScoreLine label="Accesibilitate" value={property.accessibility_score}/>
+            <ScoreLine label="Facilitati" value={property.facilities_score}/>
+            <ScoreLine label="Investitional" value={property.investment_score}/>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-slate-200 pt-2 text-xs text-slate-500">
+                <span>Metrou: {property.poi_metro_count ?? 0}</span>
+                <span>Transport: {property.poi_transport_count ?? 0}</span>
+                <span>Educatie: {property.poi_education_count ?? 0}</span>
+                <span>Sanatate: {property.poi_health_count ?? 0}</span>
+                <span>Parcuri: {property.poi_green_count ?? 0}</span>
+                <span>Servicii: {property.poi_commercial_count ?? 0}</span>
+            </div>
+        </div>
+    );
+}
+
 function SummaryCard({title, value}: { title: string; value: string | number }) {
     return (
         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
@@ -434,6 +492,7 @@ export default function PropertiesPage() {
     const [editingId, setEditingId] = useState<number | null>(null);
     const [showForm, setShowForm] = useState(false);
     const [error, setError] = useState("");
+    const [notice, setNotice] = useState("");
     const [search, setSearch] = useState("");
     const [formError, setFormError] = useState("");
     const [sectorFilter, setSectorFilter] = useState("all");
@@ -441,6 +500,8 @@ export default function PropertiesPage() {
     const [saving, setSaving] = useState(false);
     const [propertyToDelete, setPropertyToDelete] = useState<PropertyItem | null>(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
+    const [scoreLoadingId, setScoreLoadingId] = useState<number | null>(null);
+    const [portfolioScoreLoading, setPortfolioScoreLoading] = useState(false);
     const [showLocationPicker, setShowLocationPicker] = useState(false);
     const [locationSelected, setLocationSelected] = useState(false);
     const [locationMustBeReselected, setLocationMustBeReselected] = useState(false);
@@ -814,6 +875,77 @@ export default function PropertiesPage() {
         }
     }
 
+    async function recalculateLocationScores(property: PropertyItem) {
+        if (!canEdit) {
+            return;
+        }
+
+        try {
+            setScoreLoadingId(property.id);
+            setError("");
+
+            const updatedProperty = await apiRequest<PropertyItem>(
+                `/properties/${property.id}/recalculate-location-score`,
+                {
+                    method: "POST",
+                }
+            );
+
+            setProperties((current) =>
+                current.map((item) =>
+                    item.id === updatedProperty.id ? updatedProperty : item
+                )
+            );
+        } catch {
+            setError("Scorurile locatiei nu au putut fi recalculate momentan.");
+        } finally {
+            setScoreLoadingId(null);
+        }
+    }
+
+    async function recalculatePortfolioLocationScores() {
+        if (!canEdit) {
+            return;
+        }
+
+        try {
+            setPortfolioScoreLoading(true);
+            setError("");
+            setNotice("Se recalculeaza scorurile. Operatia poate dura cateva secunde.");
+
+            const result = await apiRequest<{
+                processed: number;
+                updated: number;
+                skipped: number;
+                failed: number;
+                errors?: Array<{ property_id: number; title: string; error: string }>;
+                message: string;
+            }>("/properties/recalculate-location-scores", {
+                method: "POST",
+            });
+
+            if (result.updated > 0) {
+                await loadProperties();
+            }
+
+            if (result.failed > 0 && result.updated > 0) {
+                setNotice("Scorurile au fost recalculate partial. Unele proprietati nu au putut fi actualizate.");
+            } else if (result.failed > 0 && result.updated === 0) {
+                setNotice("");
+                setError("Nu s-a putut face conexiunea la serviciul Overpass. Incearca mai tarziu.");
+            } else {
+                setNotice(
+                    `${result.message} Actualizate: ${result.updated}, sarite: ${result.skipped}, esuate: ${result.failed}.`
+                );
+            }
+        } catch {
+            setNotice("");
+            setError("Scorurile portofoliului nu au putut fi recalculate momentan.");
+        } finally {
+            setPortfolioScoreLoading(false);
+        }
+    }
+
     function updateExportFilter(field: keyof ExportFilters, value: string) {
         setExportFilters((prev) => ({
             ...prev,
@@ -1079,6 +1211,19 @@ export default function PropertiesPage() {
                     </div>
 
                     <div className="flex flex-col gap-3 sm:flex-row">
+                        {canEdit && (
+                            <button
+                                type="button"
+                                onClick={recalculatePortfolioLocationScores}
+                                disabled={portfolioScoreLoading}
+                                className="rounded-2xl border border-white/25 px-5 py-3 font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                {portfolioScoreLoading
+                                    ? "Se recalculeaza..."
+                                    : "Recalculeaza scorurile pentru toate proprietatile"}
+                            </button>
+                        )}
+
                         {canExport && (
                             <button
                                 onClick={() => setShowExportFilters(true)}
@@ -1103,6 +1248,12 @@ export default function PropertiesPage() {
             {error && (
                 <div className="rounded-2xl bg-red-50 p-4 text-sm font-medium text-red-700 ring-1 ring-red-200">
                     {error}
+                </div>
+            )}
+
+            {notice && (
+                <div className="rounded-2xl bg-slate-50 p-4 text-sm font-medium text-slate-700 ring-1 ring-slate-200">
+                    {notice}
                 </div>
             )}
 
@@ -1171,6 +1322,7 @@ export default function PropertiesPage() {
                         <th className="p-4">Pret</th>
                         <th className="p-4">Pret/mp</th>
                         <th className="p-4">Piata</th>
+                        <th className="p-4">Scoruri GIS</th>
                         <th className="p-4">Chirie</th>
                         <th className="p-4">Status</th>
                         {canUseRowActions && <th className="p-4 text-right">Actiuni</th>}
@@ -1199,6 +1351,21 @@ export default function PropertiesPage() {
                                         </span>
                                     )}
                                 </div>
+                            </td>
+                            <td className="w-72 p-4 align-top">
+                                <LocationScoresSummary property={property}/>
+                                {canEdit && (
+                                    <button
+                                        type="button"
+                                        onClick={() => recalculateLocationScores(property)}
+                                        disabled={scoreLoadingId === property.id}
+                                        className="mt-2 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        {scoreLoadingId === property.id
+                                            ? "Se recalculeaza..."
+                                            : "Recalculeaza scorurile locatiei"}
+                                    </button>
+                                )}
                             </td>
                             <td className="p-4">{property.monthly_rent.toLocaleString()} EUR</td>
                             <td className="p-4">

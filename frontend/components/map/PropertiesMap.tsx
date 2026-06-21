@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useState} from "react";
+import {useEffect, useMemo, useState} from "react";
 import {
     MapContainer,
     TileLayer,
@@ -20,6 +20,13 @@ import {
 } from "@/lib/auth";
 import {detectBucharestSector} from "@/lib/bucharestSectors";
 import ConfirmDeleteModal from "@/components/ConfirmDeleteModal";
+import ScoreMapLayer from "@/components/map/ScoreMapLayer";
+import {
+    ColorMode,
+    getMetricLabel,
+    getPropertyScore,
+    ScoreMetric,
+} from "@/lib/scoreMap";
 
 type PropertyForm = {
     title: string;
@@ -52,6 +59,17 @@ type GeocodingResult = {
     latitude: number;
     longitude: number;
     type?: string;
+};
+
+type MapLayer = "properties" | "scores";
+
+type PortfolioScoreRecalculation = {
+    processed: number;
+    updated: number;
+    skipped: number;
+    failed: number;
+    errors?: Array<{ property_id: number; title: string; error: string }>;
+    message: string;
 };
 
 const defaultIcon = L.icon({
@@ -91,6 +109,46 @@ function createMarketIcon(label: PropertyItem["market_label"]) {
         iconAnchor: [9, 9],
         popupAnchor: [0, -10],
     });
+}
+
+function ScoreRow({label, value}: { label: string; value?: number | null }) {
+    return (
+        <div className="flex justify-between gap-3">
+            <span>{label}</span>
+            <strong>
+                {value === null || value === undefined ? "-" : `${value.toFixed(2)} / 100`}
+            </strong>
+        </div>
+    );
+}
+
+function PropertyLocationScores({property}: { property: PropertyItem }) {
+    const hasScores = property.location_score !== null && property.location_score !== undefined;
+
+    if (!hasScores) {
+        return (
+            <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-500">
+                Scorurile de locatie nu au fost calculate.
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-1 rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
+            <ScoreRow label="Scor locatie" value={property.location_score}/>
+            <ScoreRow label="Accesibilitate" value={property.accessibility_score}/>
+            <ScoreRow label="Facilitati" value={property.facilities_score}/>
+            <ScoreRow label="Investitional" value={property.investment_score}/>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-slate-200 pt-2 text-slate-500">
+                <span>Metrou: {property.poi_metro_count ?? 0}</span>
+                <span>Transport: {property.poi_transport_count ?? 0}</span>
+                <span>Educatie: {property.poi_education_count ?? 0}</span>
+                <span>Sanatate: {property.poi_health_count ?? 0}</span>
+                <span>Parcuri: {property.poi_green_count ?? 0}</span>
+                <span>Servicii: {property.poi_commercial_count ?? 0}</span>
+            </div>
+        </div>
+    );
 }
 
 const emptyForm: PropertyForm = {
@@ -227,6 +285,11 @@ export default function PropertiesMap({
     const [selectedSearchLocation, setSelectedSearchLocation] = useState<GeocodingResult | null>(null);
     const [searchLoading, setSearchLoading] = useState(false);
     const [searchError, setSearchError] = useState("");
+    const [mapLayer, setMapLayer] = useState<MapLayer>("properties");
+    const [scoreMetric, setScoreMetric] = useState<ScoreMetric>("location_score");
+    const [scoreColorMode, setScoreColorMode] = useState<ColorMode>("relative");
+    const [portfolioScoreLoading, setPortfolioScoreLoading] = useState(false);
+    const [scoreLoadingId, setScoreLoadingId] = useState<number | null>(null);
     const canAddFromMap = canAddPropertyFromMap(currentUser);
     const canEditProperties = canEditProperty(currentUser);
     const canDeleteProperties = canDeleteProperty(currentUser);
@@ -238,6 +301,62 @@ export default function PropertiesMap({
     useEffect(() => {
         setDisplayProperties(properties);
     }, [properties]);
+
+    const validScoreCount = useMemo(
+        () =>
+            displayProperties.filter((property) => getPropertyScore(property, scoreMetric) !== null).length,
+        [displayProperties, scoreMetric],
+    );
+    const validScores = useMemo(
+        () =>
+            displayProperties
+                .map((property) => getPropertyScore(property, scoreMetric))
+                .filter((score): score is number => score !== null),
+        [displayProperties, scoreMetric],
+    );
+    const scoresAreClose = validScores.length > 0 && Math.min(...validScores) === Math.max(...validScores);
+
+    async function recalculatePortfolioLocationScores(force = false) {
+        if (!canEditProperties) {
+            setMapMessage("Nu ai permisiunea necesara pentru editarea proprietatilor.");
+            return;
+        }
+
+        try {
+            setPortfolioScoreLoading(true);
+            setMapMessage("Se recalculeaza scorurile. Operatia poate dura cateva secunde.");
+
+            const result = await apiRequest<PortfolioScoreRecalculation>(
+                `/properties/recalculate-location-scores?force=${force}`,
+                {
+                    method: "POST",
+                }
+            );
+
+            if (result.updated > 0) {
+                const refreshedProperties = await apiGet<PropertyItem[]>("/properties");
+                setDisplayProperties(refreshedProperties);
+            }
+
+            if (result.failed > 0 && result.updated > 0) {
+                setMapMessage("Scorurile au fost recalculate partial. Unele proprietati nu au putut fi actualizate.");
+            } else if (result.failed > 0 && result.updated === 0) {
+                setMapMessage("Nu s-a putut face conexiunea la serviciul Overpass. Incearca mai tarziu.");
+            } else {
+                setMapMessage(
+                    `${result.message} Actualizate: ${result.updated}, sarite: ${result.skipped}, esuate: ${result.failed}.`
+                );
+            }
+
+            if (result.updated > 0 && onPropertyCreated) {
+                onPropertyCreated();
+            }
+        } catch {
+            setMapMessage("Scorurile portofoliului nu au putut fi recalculate momentan.");
+        } finally {
+            setPortfolioScoreLoading(false);
+        }
+    }
 
     function updateField(field: keyof PropertyForm, value: string) {
         setForm((prev) => ({
@@ -471,6 +590,7 @@ export default function PropertiesMap({
             if (onPropertyCreated) {
                 onPropertyCreated();
             }
+
         } catch (err) {
             const message =
                 err instanceof Error
@@ -505,10 +625,42 @@ export default function PropertiesMap({
             if (onPropertyCreated) {
                 onPropertyCreated();
             }
+
         } catch {
             setMapMessage("Proprietatea nu a putut fi stearsa.");
         } finally {
             setDeleteLoading(false);
+        }
+    }
+
+    async function recalculateLocationScores(property: PropertyItem) {
+        if (!canEditProperties) {
+            setMapMessage("Nu ai permisiunea necesara pentru editarea proprietatilor.");
+            return;
+        }
+
+        try {
+            setScoreLoadingId(property.id);
+            setMapMessage("");
+
+            const updatedProperty = await apiRequest<PropertyItem>(
+                `/properties/${property.id}/recalculate-location-score`,
+                {
+                    method: "POST",
+                }
+            );
+
+            setDisplayProperties((current) =>
+                current.map((item) =>
+                    item.id === updatedProperty.id ? updatedProperty : item
+                )
+            );
+            setMapMessage("Scorurile locatiei au fost recalculate.");
+
+        } catch {
+            setMapMessage("Scorurile locatiei nu au putut fi recalculate momentan.");
+        } finally {
+            setScoreLoadingId(null);
         }
     }
 
@@ -604,6 +756,108 @@ export default function PropertiesMap({
                     </div>
                 </div>
 
+                <div className="absolute right-4 top-4 z-[1000] w-72 max-w-[calc(100%-2rem)] rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+                    <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Layer harta
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                            {(["properties", "scores"] as MapLayer[]).map((layer) => (
+                                <button
+                                    key={layer}
+                                    type="button"
+                                    onClick={() => setMapLayer(layer)}
+                                    className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${
+                                        mapLayer === layer
+                                            ? "bg-slate-900 text-white"
+                                            : "bg-slate-50 text-slate-700 hover:bg-slate-100"
+                                    }`}
+                                >
+                                    {layer === "properties" ? "Proprietati" : "Scoruri GIS"}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {mapLayer === "scores" && (
+                        <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Indicator
+                            </label>
+                            <select
+                                value={scoreMetric}
+                                onChange={(event) => setScoreMetric(event.target.value as ScoreMetric)}
+                                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900"
+                            >
+                                <option value="location_score">Scor locatie</option>
+                                <option value="accessibility_score">Accesibilitate</option>
+                                <option value="facilities_score">Facilitati</option>
+                                <option value="investment_score">Investitional</option>
+                            </select>
+
+                            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Mod culoare
+                            </label>
+                            <select
+                                value={scoreColorMode}
+                                onChange={(event) => setScoreColorMode(event.target.value as ColorMode)}
+                                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-900"
+                            >
+                                <option value="relative">Relativ la portofoliu</option>
+                                <option value="absolute">Absolut 0-100</option>
+                            </select>
+
+                            <div className="space-y-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+                                <p className="font-semibold text-slate-800">{getMetricLabel(scoreMetric)}</p>
+                                {scoreColorMode === "absolute" ? (
+                                    <div className="space-y-1">
+                                        <p><span className="inline-block h-2 w-2 rounded-full bg-[#DC2626]"/> 0 - 40 Slab</p>
+                                        <p><span className="inline-block h-2 w-2 rounded-full bg-[#F97316]"/> 40 - 60 Mediu</p>
+                                        <p><span className="inline-block h-2 w-2 rounded-full bg-[#EAB308]"/> 60 - 75 Bun</p>
+                                        <p><span className="inline-block h-2 w-2 rounded-full bg-[#22C55E]"/> 75 - 90 Foarte bun</p>
+                                        <p><span className="inline-block h-2 w-2 rounded-full bg-[#15803D]"/> 90 - 100 Excelent</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-1">
+                                        <p><span className="inline-block h-2 w-2 rounded-full bg-[#DC2626]"/> Rosu = printre cele mai slabe din portofoliu</p>
+                                        <p><span className="inline-block h-2 w-2 rounded-full bg-[#EAB308]"/> Galben = nivel mediu in portofoliu</p>
+                                        <p><span className="inline-block h-2 w-2 rounded-full bg-[#15803D]"/> Verde = printre cele mai bune din portofoliu</p>
+                                        {scoresAreClose && (
+                                            <p className="rounded-lg bg-white p-2 text-slate-500">
+                                                Toate proprietatile au scoruri apropiate pentru acest indicator.
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+                                <p className="border-t border-slate-200 pt-2 text-slate-500">
+                                    Scorul real este afisat in popup.
+                                </p>
+                            </div>
+
+                            {validScoreCount === 0 && (
+                                <div className="space-y-2 rounded-xl bg-amber-50 p-3 text-xs text-amber-700">
+                                    <p>
+                                        Nu exista scoruri calculate pentru acest indicator.
+                                    </p>
+
+                                    {canEditProperties && (
+                                        <button
+                                            type="button"
+                                            onClick={() => recalculatePortfolioLocationScores(false)}
+                                            disabled={portfolioScoreLoading}
+                                            className="w-full rounded-xl bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                            {portfolioScoreLoading
+                                                ? "Se recalculeaza scorurile..."
+                                                : "Recalculeaza scorurile pentru portofoliu"}
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
                 <MapContainer
                     center={[44.4268, 26.1025]}
                     zoom={12}
@@ -616,6 +870,18 @@ export default function PropertiesMap({
                     />
 
                     <FlyToSearchLocation location={selectedSearchLocation} />
+                    <ScoreMapLayer
+                        properties={displayProperties}
+                        metric={scoreMetric}
+                        colorMode={scoreColorMode}
+                        visible={mapLayer === "scores"}
+                        canEditProperties={canEditProperties}
+                        canDeleteProperties={canDeleteProperties}
+                        onEditProperty={handleEditProperty}
+                        onRequestDeleteProperty={handleRequestDeleteProperty}
+                        onRecalculateScore={recalculateLocationScores}
+                        recalculatingPropertyId={scoreLoadingId}
+                    />
 
                     {canAddFromMap && (
                         <MapRightClickHandler
@@ -659,7 +925,7 @@ export default function PropertiesMap({
                         </Marker>
                     )}
 
-                    {displayProperties.map((property) => (
+                    {mapLayer === "properties" && displayProperties.map((property) => (
                         <Marker
                             key={property.id}
                             position={[property.latitude, property.longitude]}
@@ -696,8 +962,9 @@ export default function PropertiesMap({
                                             {property.market_difference_percent.toFixed(2)}%
                                         </div>
                                     )}
+                                    <PropertyLocationScores property={property}/>
                                     {(canEditProperties || canDeleteProperties) && (
-                                        <div className="mt-3 flex gap-2 border-t border-slate-100 pt-3">
+                                        <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
                                             {canEditProperties && (
                                                 <button
                                                     type="button"
@@ -705,6 +972,19 @@ export default function PropertiesMap({
                                                     className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                                                 >
                                                     Editeaza
+                                                </button>
+                                            )}
+
+                                            {canEditProperties && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => recalculateLocationScores(property)}
+                                                    disabled={scoreLoadingId === property.id}
+                                                    className="rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                                >
+                                                    {scoreLoadingId === property.id
+                                                        ? "Scoruri..."
+                                                        : "Recalculeaza scorurile locatiei"}
                                                 </button>
                                             )}
 

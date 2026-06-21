@@ -19,6 +19,34 @@ def ensure_portfolio_schema(engine):
         if not _column_exists(connection, "properties", "owner_admin_id"):
             connection.execute(text("ALTER TABLE properties ADD COLUMN owner_admin_id INTEGER"))
 
+        property_score_columns = {
+            "accessibility_score": "FLOAT",
+            "facilities_score": "FLOAT",
+            "location_score": "FLOAT",
+            "investment_score": "FLOAT",
+            "poi_metro_count": "INTEGER DEFAULT 0",
+            "poi_transport_count": "INTEGER DEFAULT 0",
+            "poi_education_count": "INTEGER DEFAULT 0",
+            "poi_health_count": "INTEGER DEFAULT 0",
+            "poi_pharmacy_count": "INTEGER DEFAULT 0",
+            "poi_green_count": "INTEGER DEFAULT 0",
+            "poi_commercial_count": "INTEGER DEFAULT 0",
+            "nearest_metro_m": "FLOAT",
+            "nearest_transport_m": "FLOAT",
+            "nearest_school_m": "FLOAT",
+            "nearest_health_m": "FLOAT",
+            "nearest_green_m": "FLOAT",
+            "nearest_commercial_m": "FLOAT",
+            "poi_summary_json": "TEXT",
+            "poi_last_updated_at": "DATETIME",
+        }
+
+        for column_name, column_type in property_score_columns.items():
+            if not _column_exists(connection, "properties", column_name):
+                connection.execute(
+                    text(f"ALTER TABLE properties ADD COLUMN {column_name} {column_type}")
+                )
+
         for role_name in ("admin", "agent", "manager", "developer"):
             exists = connection.execute(
                 text("SELECT id FROM roles WHERE name = :name LIMIT 1"),

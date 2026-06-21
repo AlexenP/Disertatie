@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, ForeignKey, Text
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
@@ -69,6 +69,25 @@ class Property(Base):
     interested_clients = Column(Integer, nullable=False, default=0)
     views_count = Column(Integer, nullable=False, default=0)
     owner_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    accessibility_score = Column(Float, nullable=True)
+    facilities_score = Column(Float, nullable=True)
+    location_score = Column(Float, nullable=True)
+    investment_score = Column(Float, nullable=True)
+    poi_metro_count = Column(Integer, default=0)
+    poi_transport_count = Column(Integer, default=0)
+    poi_education_count = Column(Integer, default=0)
+    poi_health_count = Column(Integer, default=0)
+    poi_pharmacy_count = Column(Integer, default=0)
+    poi_green_count = Column(Integer, default=0)
+    poi_commercial_count = Column(Integer, default=0)
+    nearest_metro_m = Column(Float, nullable=True)
+    nearest_transport_m = Column(Float, nullable=True)
+    nearest_school_m = Column(Float, nullable=True)
+    nearest_health_m = Column(Float, nullable=True)
+    nearest_green_m = Column(Float, nullable=True)
+    nearest_commercial_m = Column(Float, nullable=True)
+    poi_summary_json = Column(Text, nullable=True)
+    poi_last_updated_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     sector = relationship("Sector", back_populates="properties")
