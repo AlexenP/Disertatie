@@ -2,7 +2,7 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 from sqlalchemy.orm import Session
 from statsmodels.tsa.arima.model import ARIMA
-from app.models.models import PriceHistory
+from app.models.models import PriceHistory, Sector
 
 
 def calculate_rsi(values: list[float], period: int = 14) -> float:
@@ -23,6 +23,8 @@ def calculate_rsi(values: list[float], period: int = 14) -> float:
 
 
 def generate_arima_forecast(db: Session, sector_id: int, months: int = 6):
+    sector = db.query(Sector).filter(Sector.id == sector_id).first()
+    sector_name = sector.name if sector else f"Sector {sector_id}"
     history = (
         db.query(PriceHistory)
         .filter(PriceHistory.sector_id == sector_id)
@@ -31,7 +33,12 @@ def generate_arima_forecast(db: Session, sector_id: int, months: int = 6):
     )
     values = [h.average_price_sqm for h in history]
     if len(values) < 6:
-        return {"rsi": calculate_rsi(values), "forecast": []}
+        return {
+            "sector_id": sector_id,
+            "sector_name": sector_name,
+            "rsi": calculate_rsi(values),
+            "forecast": [],
+        }
 
     try:
         model = ARIMA(values, order=(1, 1, 1))
@@ -50,4 +57,9 @@ def generate_arima_forecast(db: Session, sector_id: int, months: int = 6):
             "model_name": "ARIMA(1,1,1)",
         })
 
-    return {"rsi": calculate_rsi(values), "forecast": forecast}
+    return {
+        "sector_id": sector_id,
+        "sector_name": sector_name,
+        "rsi": calculate_rsi(values),
+        "forecast": forecast,
+    }

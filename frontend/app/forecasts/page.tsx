@@ -167,6 +167,10 @@ export default function ForecastsPage() {
   const averageForecast =
     forecastData.forecast.reduce((sum, item) => sum + item.predicted_price_sqm, 0) /
     forecastData.forecast.length;
+  const selectedSectorName =
+    forecastData.sector_name ||
+    sectors.find((sector) => sector.id === sectorId)?.name ||
+    `Sector ${sectorId}`;
 
   return (
     <section className="space-y-6">
@@ -194,7 +198,7 @@ export default function ForecastsPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <div className="rounded-2xl bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Sector analizat</p>
-          <p className="mt-2 text-2xl font-bold">{forecastData.sector_name}</p>
+          <p className="mt-2 text-2xl font-bold">{selectedSectorName}</p>
         </div>
 
         <div className="rounded-2xl bg-white p-5 shadow-sm">
@@ -274,7 +278,7 @@ export default function ForecastsPage() {
 
           <div className="mt-4 space-y-4 text-slate-700">
             <p>
-              Pentru {forecastData.sector_name}, ultimul pret istoric este de{" "}
+              Pentru {selectedSectorName}, ultimul pret istoric este de{" "}
               <strong>{lastHistoryValue.toFixed(2)} EUR/mp</strong>.
             </p>
 
@@ -294,7 +298,7 @@ export default function ForecastsPage() {
                 {getRecommendation(
                   forecastData.rsi,
                   differencePercent,
-                  forecastData.sector_name
+                  selectedSectorName
                 )}
               </strong>
             </p>
