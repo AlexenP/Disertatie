@@ -159,8 +159,6 @@ async def create_property(
         )
 
     market_average = get_latest_sector_market_averages(db, [prop.sector_id]).get(prop.sector_id)
-    await try_enrich_location_scores(db, prop)
-    market_average = get_latest_sector_market_averages(db, [prop.sector_id]).get(prop.sector_id)
     return serialize_property(prop, market_average)
 
 
@@ -271,10 +269,6 @@ async def update_property(
     if payload.status not in VALID_STATUSES:
         raise HTTPException(status_code=400, detail="Status invalid")
 
-    location_changed = (
-        round(prop.latitude or 0, 6) != round(payload.latitude, 6)
-        or round(prop.longitude or 0, 6) != round(payload.longitude, 6)
-    )
     economic_changed = (
         prop.price != payload.price
         or prop.monthly_rent != payload.monthly_rent
@@ -288,9 +282,7 @@ async def update_property(
     db.commit()
     db.refresh(prop)
 
-    if location_changed:
-        await try_enrich_location_scores(db, prop)
-    elif economic_changed and prop.location_score is not None:
+    if economic_changed and prop.location_score is not None:
         update_investment_score(db, prop)
         db.commit()
         db.refresh(prop)

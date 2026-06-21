@@ -48,6 +48,13 @@ def get_dashboard(db: Session, portfolio_admin_id: int):
 def get_sector_analytics(db: Session, portfolio_admin_id: int):
     sectors = db.query(Sector).all()
     result = []
+
+    def average_optional(values):
+        valid_values = [value for value in values if value is not None]
+        if not valid_values:
+            return None
+        return round(sum(valid_values) / len(valid_values), 2)
+
     for sector in sectors:
         props = [prop for prop in sector.properties if prop.owner_admin_id == portfolio_admin_id]
         if not props:
@@ -61,5 +68,7 @@ def get_sector_analytics(db: Session, portfolio_admin_id: int):
             "monthly_revenue": round(sum(p.monthly_rent for p in props if p.status in {"occupied", "rented"}), 2),
             "occupancy_rate": round(len([p for p in props if p.status in OCCUPIED_STATUSES]) / len(props) * 100, 2),
             "interest_score": sum(p.interested_clients + p.views_count for p in props),
+            "avg_location_score": average_optional([p.location_score for p in props]),
+            "avg_investment_score": average_optional([p.investment_score for p in props]),
         })
     return result

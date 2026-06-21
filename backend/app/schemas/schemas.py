@@ -124,3 +124,5 @@ class SectorAnalyticsRead(BaseModel):
     monthly_revenue: float
     occupancy_rate: float
     interest_score: int
+    avg_location_score: Optional[float] = None
+    avg_investment_score: Optional[float] = None

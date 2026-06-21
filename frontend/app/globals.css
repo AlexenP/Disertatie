@@ -24,3 +24,22 @@ a {
 * {
   box-sizing: border-box;
 }
+
+.sector-label-tooltip {
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: rgba(255, 255, 255, 0.72) !important;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12) !important;
+  color: rgba(15, 23, 42, 0.82) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  padding: 4px 7px !important;
+  pointer-events: none !important;
+  backdrop-filter: blur(6px) !important;
+}
+
+.sector-label-tooltip::before {
+  display: none !important;
+}

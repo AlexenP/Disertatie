@@ -111,6 +111,10 @@ function createMarketIcon(label: PropertyItem["market_label"]) {
     });
 }
 
+function roundCoordinate(value: number) {
+    return Number(value.toFixed(6));
+}
+
 function ScoreRow({label, value}: { label: string; value?: number | null }) {
     return (
         <div className="flex justify-between gap-3">
@@ -560,28 +564,39 @@ export default function PropertiesMap({
         try {
             setSaving(true);
             setFormError("");
+            const previousProperty = editingProperty;
+            let savedProperty: PropertyItem;
 
             if (editingProperty) {
-                const updatedProperty = await apiRequest<PropertyItem>(`/properties/${editingProperty.id}`, {
+                savedProperty = await apiRequest<PropertyItem>(`/properties/${editingProperty.id}`, {
                     method: "PUT",
                     body: JSON.stringify(form),
                 });
 
                 setDisplayProperties((current) =>
                     current.map((item) =>
-                        item.id === updatedProperty.id ? updatedProperty : item
+                        item.id === savedProperty.id ? savedProperty : item
                     )
                 );
                 setMapMessage("Proprietatea a fost actualizata.");
             } else {
-                const createdProperty = await apiRequest<PropertyItem>("/properties", {
+                savedProperty = await apiRequest<PropertyItem>("/properties", {
                     method: "POST",
                     body: JSON.stringify(form),
                 });
 
-                setDisplayProperties((current) => [...current, createdProperty]);
+                setDisplayProperties((current) => [...current, savedProperty]);
                 setMapMessage("Proprietatea a fost adaugata.");
             }
+
+            const locationChanged = previousProperty
+                ? roundCoordinate(previousProperty.latitude) !== roundCoordinate(savedProperty.latitude)
+                    || roundCoordinate(previousProperty.longitude) !== roundCoordinate(savedProperty.longitude)
+                : true;
+            const shouldRecalculateScores =
+                locationChanged
+                || savedProperty.location_score === null
+                || savedProperty.location_score === undefined;
 
             setShowForm(false);
             setEditingProperty(null);
@@ -589,6 +604,10 @@ export default function PropertiesMap({
 
             if (onPropertyCreated) {
                 onPropertyCreated();
+            }
+
+            if (shouldRecalculateScores) {
+                void recalculateLocationScores(savedProperty);
             }
 
         } catch (err) {

@@ -70,9 +70,9 @@ type PropertyForm = {
     property_type_id: number;
     latitude: number;
     longitude: number;
-    surface_sqm: number;
-    price: number;
-    monthly_rent: number;
+    surface_sqm: string;
+    price: string;
+    monthly_rent: string;
     status: string;
 };
 
@@ -103,9 +103,9 @@ const emptyForm: PropertyForm = {
     property_type_id: 1,
     latitude: 44.4268,
     longitude: 26.1025,
-    surface_sqm: 50,
-    price: 100000,
-    monthly_rent: 500,
+    surface_sqm: "50",
+    price: "100000",
+    monthly_rent: "500",
     status: "available",
 };
 
@@ -189,6 +189,10 @@ const marketLabels = {
         className: "bg-red-50 text-red-700 ring-red-200",
     },
 };
+
+function roundCoordinate(value: number) {
+    return Number(value.toFixed(6));
+}
 
 async function apiRequest<T>(path: string, options?: RequestInit): Promise<T> {
     try {
@@ -644,6 +648,14 @@ export default function PropertiesPage() {
             }
         }
 
+        if (field === "surface_sqm" || field === "price" || field === "monthly_rent") {
+            setForm((prev) => ({
+                ...prev,
+                [field]: value,
+            }));
+            return;
+        }
+
         setForm((prev) => ({
             ...prev,
             [field]:
@@ -704,9 +716,9 @@ export default function PropertiesPage() {
             property_type_id: property.property_type_id,
             latitude: property.latitude,
             longitude: property.longitude,
-            surface_sqm: property.surface_sqm,
-            price: property.price,
-            monthly_rent: property.monthly_rent,
+            surface_sqm: String(property.surface_sqm),
+            price: String(property.price),
+            monthly_rent: String(property.monthly_rent),
             status: property.status,
         });
 
@@ -754,23 +766,39 @@ export default function PropertiesPage() {
             return "Tipul proprietatii este obligatoriu.";
         }
 
-        if (form.surface_sqm <= 0) {
+        const surfaceSqm = Number(form.surface_sqm);
+        const price = Number(form.price);
+        const monthlyRent = Number(form.monthly_rent);
+
+        if (form.surface_sqm.trim() === "" || !Number.isFinite(surfaceSqm)) {
+            return "Suprafata este obligatorie.";
+        }
+
+        if (surfaceSqm <= 0) {
             return "Suprafata trebuie sa fie mai mare decat 0 mp.";
         }
 
-        if (form.surface_sqm < 10) {
+        if (surfaceSqm < 10) {
             return "Suprafata pare prea mica. Introdu o valoare de minimum 10 mp.";
         }
 
-        if (form.price <= 0) {
+        if (form.price.trim() === "" || !Number.isFinite(price)) {
+            return "Pretul este obligatoriu.";
+        }
+
+        if (price <= 0) {
             return "Pretul trebuie sa fie mai mare decat 0 EUR.";
         }
 
-        if (form.price < 1000) {
+        if (price < 1000) {
             return "Pretul pare prea mic. Introdu o valoare realista pentru piata imobiliara.";
         }
 
-        if (form.monthly_rent < 0) {
+        if (form.monthly_rent.trim() === "" || !Number.isFinite(monthlyRent)) {
+            return "Chiria lunara este obligatorie.";
+        }
+
+        if (monthlyRent < 0) {
             return "Chiria lunara nu poate fi negativa.";
         }
 
@@ -806,18 +834,37 @@ export default function PropertiesPage() {
         try {
             setSaving(true);
             setFormError("");
+            const previousProperty = editingId
+                ? properties.find((property) => property.id === editingId)
+                : null;
+            const payload = {
+                ...form,
+                surface_sqm: Number(form.surface_sqm),
+                price: Number(form.price),
+                monthly_rent: Number(form.monthly_rent),
+            };
+            let savedProperty: PropertyItem;
 
             if (editingId) {
-                await apiRequest(`/properties/${editingId}`, {
+                savedProperty = await apiRequest<PropertyItem>(`/properties/${editingId}`, {
                     method: "PUT",
-                    body: JSON.stringify(form),
+                    body: JSON.stringify(payload),
                 });
             } else {
-                await apiRequest("/properties", {
+                savedProperty = await apiRequest<PropertyItem>("/properties", {
                     method: "POST",
-                    body: JSON.stringify(form),
+                    body: JSON.stringify(payload),
                 });
             }
+
+            const locationChanged = previousProperty
+                ? roundCoordinate(previousProperty.latitude) !== roundCoordinate(savedProperty.latitude)
+                    || roundCoordinate(previousProperty.longitude) !== roundCoordinate(savedProperty.longitude)
+                : true;
+            const shouldRecalculateScores =
+                locationChanged
+                || savedProperty.location_score === null
+                || savedProperty.location_score === undefined;
 
             setShowForm(false);
             setEditingId(null);
@@ -828,6 +875,10 @@ export default function PropertiesPage() {
             setLocationMustBeReselected(false);
             setLocationMessage("");
             await loadProperties();
+
+            if (shouldRecalculateScores) {
+                void recalculateSavedPropertyScores(savedProperty.id);
+            }
         } catch (err) {
             const message =
                 err instanceof Error
@@ -898,6 +949,33 @@ export default function PropertiesPage() {
             );
         } catch {
             setError("Scorurile locatiei nu au putut fi recalculate momentan.");
+        } finally {
+            setScoreLoadingId(null);
+        }
+    }
+
+    async function recalculateSavedPropertyScores(propertyId: number) {
+        if (!canEdit) {
+            return;
+        }
+
+        try {
+            setScoreLoadingId(propertyId);
+
+            const updatedProperty = await apiRequest<PropertyItem>(
+                `/properties/${propertyId}/recalculate-location-score`,
+                {
+                    method: "POST",
+                }
+            );
+
+            setProperties((current) =>
+                current.map((item) =>
+                    item.id === updatedProperty.id ? updatedProperty : item
+                )
+            );
+        } catch {
+            setNotice("Proprietatea a fost salvata, dar scorurile GIS nu au putut fi calculate momentan.");
         } finally {
             setScoreLoadingId(null);
         }
@@ -1934,7 +2012,7 @@ export default function PropertiesPage() {
                         <div className="mt-6 rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
                             Pret calculat pe metru patrat:{" "}
                             <strong className="text-slate-900">
-                                {form.surface_sqm > 0 ? (form.price / form.surface_sqm).toFixed(2) : "0.00"} EUR/mp
+                                {Number(form.surface_sqm) > 0 ? (Number(form.price) / Number(form.surface_sqm)).toFixed(2) : "0.00"} EUR/mp
                             </strong>
                         </div>
 

@@ -98,4 +98,6 @@ export type SectorAnalytics = {
   monthly_revenue: number;
   occupancy_rate: number;
   interest_score: number;
+  avg_location_score?: number | null;
+  avg_investment_score?: number | null;
 };
